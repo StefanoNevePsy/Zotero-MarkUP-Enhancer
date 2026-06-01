@@ -7,12 +7,13 @@ A Zotero plugin (Zotero 7 / 8 / 9) that improves highlighting and tagging:
    the reader. The stored annotation colour is **never** modified, so your notes
    keep their normal mapping and sync exactly as before.
 2. **Rounded highlight corners** — with a configurable radius.
-3. **Fast colored tag grid** — a new "Tag Grid" section in the item pane shows a
+3. **Fast colored tag grid** — a "Tag Grid" section in the item pane shows a
    scrollable grid of every existing tag as a coloured chip. Click to add/remove.
    The most **recently-used** tags appear first; the rest are alphabetical.
    Each tag gets a **stable** colour (Zotero's own tag colour if set, otherwise a
    pleasant auto-assigned colour that never changes), so tags are recognisable at
-   a glance.
+   a glance. The same grid is available for **annotations**: a 🏷 button in each
+   annotation's header in the reader sidebar opens the grid as a popup.
 4. **Merge overlapping highlights** — when a new highlight overlaps an existing
    one, the two are merged into a single annotation (rectangles unioned, text /
    comments / tags combined) instead of leaving two duplicated notes.

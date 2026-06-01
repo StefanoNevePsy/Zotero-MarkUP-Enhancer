@@ -70,8 +70,7 @@ var ZoteroMarkupEnhancer = {
       pluginID: this.id,
       src: "prefs/prefs.xhtml",
       label: "Markup Enhancer",
-      image: this.rootURI + "icons/icon48.svg",
-      scripts: ["prefs/prefs.js"]
+      image: this.rootURI + "icons/icon48.svg"
     });
   },
 

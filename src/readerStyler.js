@@ -41,7 +41,10 @@ ZoteroMarkupEnhancer.ReaderStyler = {
 
     // Re-render open readers when the palette changes.
     const U = ZoteroMarkupEnhancer.Utils;
-    for (const name of ["palette", "customPalette"]) {
+    const watch = ["palette"].concat(
+      Object.keys(ZoteroMarkupEnhancer.Palettes.STANDARD).map((s) => "customColor." + s)
+    );
+    for (const name of watch) {
       try {
         const sym = Zotero.Prefs.registerObserver(
           "extensions.zotero." + U.key(name),

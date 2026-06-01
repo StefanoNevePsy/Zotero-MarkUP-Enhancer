@@ -39,46 +39,57 @@ ZoteroMarkupEnhancer.OverlapMerger = {
 
   async _handleAdds(ids) {
     const sameColorOnly = ZoteroMarkupEnhancer.Utils.get("mergeSameColorOnly");
+    const L = (m) => ZoteroMarkupEnhancer.log("merge: " + m);
+    L("add ids=" + ids.join(","));
     for (const id of ids) {
       let item;
       try {
-        item = Zotero.Items.get(id);
+        item = await Zotero.Items.getAsync(id);
       } catch (e) { continue; }
-      if (!item || !item.isAnnotation || !item.isAnnotation()) continue;
+      if (!item || !item.isAnnotation || !item.isAnnotation()) { L(id + " not annotation"); continue; }
+      L(id + " type=" + item.annotationType + " color=" + item.annotationColor + " parent=" + item.parentID);
       if (item.annotationType !== "highlight") continue;
       if (!item.parentID) continue;
 
       try {
-        await this._tryMergeOne(item, sameColorOnly);
+        await this._tryMergeOne(item, sameColorOnly, L);
       } catch (e) {
-        ZoteroMarkupEnhancer.log("merge one: " + e);
+        L("error: " + (e && e.stack ? e.stack : e));
       }
     }
   },
 
-  async _tryMergeOne(item, sameColorOnly) {
-    const attachment = Zotero.Items.get(item.parentID);
+  async _tryMergeOne(item, sameColorOnly, L) {
+    const attachment = await Zotero.Items.getAsync(item.parentID);
     if (!attachment) return;
 
     let sibs = attachment.getAnnotations();
     if (sibs && typeof sibs.then === "function") sibs = await sibs;
-    if (!Array.isArray(sibs)) return;
+    if (!Array.isArray(sibs)) { L("no sibling array"); return; }
 
     const myPos = this._pos(item);
-    if (!myPos) return;
+    if (!myPos) { L("no position for new annotation"); return; }
+    L("checking " + sibs.length + " siblings on page " + myPos.pageIndex);
 
     for (const sib of sibs) {
       if (!sib || sib.id === item.id) continue;
       if (sib.annotationType !== "highlight") continue;
-      if (sameColorOnly && this._color(sib) !== this._color(item)) continue;
+      if (sameColorOnly && this._color(sib) !== this._color(item)) {
+        L("sib " + sib.id + " different colour (" + sib.annotationColor + ")");
+        continue;
+      }
 
       const sibPos = this._pos(sib);
       if (!sibPos || sibPos.pageIndex !== myPos.pageIndex) continue;
-      if (!this._rectsOverlap(myPos.rects, sibPos.rects)) continue;
+      const overlap = this._rectsOverlap(myPos.rects, sibPos.rects);
+      L("sib " + sib.id + " samePage overlap=" + overlap);
+      if (!overlap) continue;
 
+      L("merging " + item.id + " with " + sib.id);
       await this._merge(item, sib);
       return; // one merge per add; chained overlaps resolve on their own adds
     }
+    L("no overlapping sibling found");
   },
 
   _pos(annotation) {

@@ -43,19 +43,16 @@ ZoteroMarkupEnhancer.Palettes = {
     const U = ZoteroMarkupEnhancer.Utils;
     const name = U.get("palette");
 
-    let slotMap;
     if (name === "custom") {
-      // Custom palette is stored keyed by standard hex; merge over default so
-      // any unset slot falls back to the standard colour.
-      const custom = U.getJSON("customPalette", {});
+      // Each slot has its own bindable pref (customColor.<slot>).
       const map = {};
       for (const [slot, std] of Object.entries(this.STANDARD)) {
-        map[std] = U.toHex6(custom[std]) || std;
+        map[std] = U.toHex6(U.get("customColor." + slot)) || std;
       }
       return map;
     }
 
-    slotMap = this.PALETTES[name] || this.PALETTES.default;
+    const slotMap = this.PALETTES[name] || this.PALETTES.default;
     const map = {};
     for (const [slot, std] of Object.entries(this.STANDARD)) {
       map[std] = U.toHex6(slotMap[slot]) || std;

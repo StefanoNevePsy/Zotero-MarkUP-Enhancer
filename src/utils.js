@@ -7,7 +7,15 @@ ZoteroMarkupEnhancer.Utils = {
   // Default values. Zotero.Prefs auto-prefixes keys with "extensions.zotero.".
   DEFAULTS: {
     "palette": "pastel",                 // pastel | neon | earthy | default | custom
-    "customPalette": "{}",               // JSON: { standardHex: customHex }
+    // Custom palette: one bindable pref per standard colour slot.
+    "customColor.yellow": "#ffd400",
+    "customColor.red": "#ff6666",
+    "customColor.green": "#5fb236",
+    "customColor.blue": "#2ea8e5",
+    "customColor.purple": "#a28ae5",
+    "customColor.magenta": "#e56eee",
+    "customColor.orange": "#f19837",
+    "customColor.gray": "#aaaaaa",
     "roundedCorners": true,
     "cornerRadius": 4,                    // px
     "mergeOverlapping": true,

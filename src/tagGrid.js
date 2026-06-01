@@ -1,14 +1,19 @@
 /* eslint-disable no-undef */
-// A colored, scrollable tag grid in the item pane.
+// A colored, scrollable tag grid.
 //
-// Adds a "Tag Grid" section to the item pane: a text field to filter / add,
-// plus a scrollable grid of every existing tag rendered as a coloured chip.
-// Recently-used tags come first (quick access to what you're researching now),
-// then the rest alphabetically. Clicking a chip toggles the tag on the item.
+// Two entry points share the same renderer (buildUI):
+//   * An item-pane "Tag Grid" section for regular items.
+//   * A 🏷 button injected into each annotation's header in the reader sidebar,
+//     which opens the same grid as a popup so you can tag annotations quickly.
+//
+// The grid shows every existing tag as a coloured chip; recently-used tags come
+// first, then the rest alphabetically. Clicking a chip toggles the tag on the
+// item/annotation. A text field filters, and Enter creates a new tag.
 
 ZoteroMarkupEnhancer.TagGrid = {
   HTML_NS: "http://www.w3.org/1999/xhtml",
   sectionID: null,
+  _readerHandler: null,
 
   init() {
     const rootURI = ZoteroMarkupEnhancer.rootURI;
@@ -30,14 +35,20 @@ ZoteroMarkupEnhancer.TagGrid = {
         );
       }
     });
+
+    this._initReader();
   },
 
   shutdown() {
     if (this.sectionID) {
-      try {
-        Zotero.ItemPaneManager.unregisterSection(this.sectionID);
-      } catch (e) { /* ignore */ }
+      try { Zotero.ItemPaneManager.unregisterSection(this.sectionID); } catch (e) { /* ignore */ }
       this.sectionID = null;
+    }
+    if (this._readerHandler) {
+      try {
+        Zotero.Reader.unregisterEventListener("renderSidebarAnnotationHeader", this._readerHandler);
+      } catch (e) { /* ignore */ }
+      this._readerHandler = null;
     }
   },
 
@@ -47,16 +58,16 @@ ZoteroMarkupEnhancer.TagGrid = {
     return el;
   },
 
-  _injectStyle(doc, container) {
-    if (container.querySelector("style[data-zmue]")) return;
+  _injectStyle(doc) {
+    if (doc.getElementById("zmue-tg-style")) return;
     const style = doc.createElementNS(this.HTML_NS, "style");
-    style.setAttribute("data-zmue", "1");
+    style.id = "zmue-tg-style";
     style.textContent = `
       .zmue-tg-wrap { display:flex; flex-direction:column; gap:6px; padding:4px 2px; }
       .zmue-tg-input {
         width:100%; box-sizing:border-box; padding:5px 8px;
         border:1px solid var(--fill-quarternary, #ccc); border-radius:6px;
-        background: var(--material-background, #fff);
+        background: var(--material-background, #fff); color: inherit;
       }
       .zmue-tg-grid {
         display:flex; flex-wrap:wrap; gap:5px;
@@ -75,8 +86,19 @@ ZoteroMarkupEnhancer.TagGrid = {
       .zmue-tg-sep { width:100%; font-size:10px; text-transform:uppercase;
         letter-spacing:.04em; opacity:.55; margin:4px 0 0; }
       .zmue-tg-empty { opacity:.6; font-size:12px; padding:8px 2px; }
+      .zmue-tg-annot-btn {
+        background:transparent; border:none; cursor:pointer; font-size:12px;
+        padding:0 4px; line-height:1; opacity:.75;
+      }
+      .zmue-tg-annot-btn:hover { opacity:1; }
+      .zmue-tg-popup {
+        position:fixed; z-index:99999; width:280px; max-width:90vw;
+        background:var(--material-background,#fff); color:var(--fill-primary,#111);
+        border:1px solid rgba(0,0,0,.2); border-radius:8px;
+        box-shadow:0 6px 24px rgba(0,0,0,.25); padding:6px;
+      }
     `;
-    container.appendChild(style);
+    (doc.head || doc.documentElement).appendChild(style);
   },
 
   async _allTagNames(libraryID) {
@@ -86,54 +108,60 @@ ZoteroMarkupEnhancer.TagGrid = {
     return raw.map((t) => (typeof t === "string" ? t : t.tag)).filter(Boolean);
   },
 
-  _orderedNames(allNames, currentSet) {
+  _orderedNames(allNames) {
     const U = ZoteroMarkupEnhancer.Utils;
     const TC = ZoteroMarkupEnhancer.TagColors;
     const recentCount = Number(U.get("recentTagCount")) || 12;
     const existing = new Set(allNames);
 
-    const recent = TC.recent()
-      .filter((n) => existing.has(n))
-      .slice(0, recentCount);
+    const recent = TC.recent().filter((n) => existing.has(n)).slice(0, recentCount);
     const recentSet = new Set(recent);
 
     const rest = allNames
       .filter((n) => !recentSet.has(n))
       .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
 
-    return { recent, rest, currentSet };
+    return { recent, rest };
   },
+
+  // ---- item-pane section ------------------------------------------------
 
   async render(body, item, editable) {
     const doc = body.ownerDocument;
     body.textContent = "";
 
-    if (!item || !item.isRegularItem || !item.isRegularItem()) {
+    if (!item || typeof item.getTags !== "function") {
       const note = this._el(doc, "div", { className: "zmue-tg-empty" });
       note.textContent = "Select an item to manage its tags.";
+      this._injectStyle(doc);
       body.appendChild(note);
       return;
     }
+    await this.buildUI(doc, body, item, editable);
+  },
 
-    this._injectStyle(doc, body);
+  // ---- shared renderer (item pane + annotation popup) -------------------
+
+  async buildUI(doc, container, item, editable) {
+    this._injectStyle(doc);
+    container.textContent = "";
 
     const wrap = this._el(doc, "div", { className: "zmue-tg-wrap" });
     const input = this._el(doc, "input", { className: "zmue-tg-input" });
     input.type = "text";
     input.placeholder = editable
-      ? "Filter tags… (press Enter to add a new one)"
+      ? "Filter tags… (Enter to add)"
       : "Filter tags…";
     const grid = this._el(doc, "div", { className: "zmue-tg-grid" });
     wrap.appendChild(input);
     wrap.appendChild(grid);
-    body.appendChild(wrap);
+    container.appendChild(wrap);
 
     const libraryID = item.libraryID;
     const allNames = await this._allTagNames(libraryID);
 
-    // A tag that lived only on this item is purged from the library once removed,
-    // so getAll() would drop it on the next render. Union in the recently-used
-    // names (and the item's own tags) so just-added tags stay re-addable.
+    // Keep just-added (and recently-used) tags visible even if a tag was purged
+    // from the library after being removed from its only item.
     const known = new Set(allNames);
     for (const n of ZoteroMarkupEnhancer.TagColors.recent()) {
       if (!known.has(n)) { allNames.push(n); known.add(n); }
@@ -150,8 +178,7 @@ ZoteroMarkupEnhancer.TagGrid = {
       grid.textContent = "";
 
       const currentSet = currentNames();
-      const { recent, rest } = this._orderedNames(allNames, currentSet);
-
+      const { recent, rest } = this._orderedNames(allNames);
       const match = (n) => !filter || n.toLowerCase().includes(filter);
       const recentF = recent.filter(match);
       const restF = rest.filter(match);
@@ -173,7 +200,9 @@ ZoteroMarkupEnhancer.TagGrid = {
           grid.appendChild(sep);
         }
         for (const name of names) {
-          grid.appendChild(this._chip(doc, name, libraryID, currentSet, editable, buildGrid, input, item));
+          grid.appendChild(
+            this._chip(doc, name, libraryID, currentSet, editable, buildGrid, input, item)
+          );
         }
       };
 
@@ -188,7 +217,7 @@ ZoteroMarkupEnhancer.TagGrid = {
       const name = input.value.trim();
       if (!name) return;
       e.preventDefault();
-      if (!(currentNames().has(name))) {
+      if (!currentNames().has(name)) {
         item.addTag(name);
         await item.saveTx();
         ZoteroMarkupEnhancer.TagColors.noteUsed(name);
@@ -242,5 +271,109 @@ ZoteroMarkupEnhancer.TagGrid = {
     });
 
     return chip;
+  },
+
+  // ---- reader sidebar integration (tag grid for annotations) ------------
+
+  _initReader() {
+    const self = this;
+    this._readerHandler = (event) => {
+      try { self._onAnnotationHeader(event); }
+      catch (e) { ZoteroMarkupEnhancer.log("annot header: " + e); }
+    };
+    try {
+      Zotero.Reader.registerEventListener(
+        "renderSidebarAnnotationHeader", this._readerHandler, ZoteroMarkupEnhancer.id
+      );
+    } catch (e) {
+      ZoteroMarkupEnhancer.log("reader tag handler reg failed: " + e);
+    }
+  },
+
+  _onAnnotationHeader(event) {
+    const { reader, doc, params, append } = event;
+    if (!doc) return;
+    this._injectStyle(doc);
+
+    const btn = this._el(doc, "button", { className: "zmue-tg-annot-btn" });
+    btn.textContent = "🏷";
+    btn.title = "Tag grid";
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      const item = this._resolveAnnotation(reader, params);
+      this._toggleAnnotationGrid(doc, btn, item);
+    });
+
+    if (typeof append === "function") {
+      append(btn);
+    } else if (event.append && event.append.appendChild) {
+      event.append.appendChild(btn);
+    }
+  },
+
+  _resolveAnnotation(reader, params) {
+    try {
+      let key = null;
+      if (params) {
+        if (params.annotation) key = params.annotation.id || params.annotation.key;
+        key = key || params.id || params.key || params.annotationKey;
+        if (!key && Array.isArray(params.ids) && params.ids.length) key = params.ids[0];
+      }
+      ZoteroMarkupEnhancer.log(
+        "annot header params=[" + (params ? Object.keys(params).join(",") : "") + "] key=" + key
+      );
+      if (!key) return null;
+
+      for (const id of reader.annotationItemIDs || []) {
+        const it = Zotero.Items.get(id);
+        if (it && (it.key === key || it.id === key)) return it;
+      }
+      const attachment = Zotero.Items.get(reader.itemID);
+      if (attachment) {
+        const ann = Zotero.Items.getByLibraryAndKey(attachment.libraryID, key);
+        if (ann) return ann;
+      }
+    } catch (e) {
+      ZoteroMarkupEnhancer.log("resolve annotation: " + e);
+    }
+    return null;
+  },
+
+  _toggleAnnotationGrid(doc, btn, item) {
+    const existing = doc.getElementById("zmue-annot-popup");
+    if (existing) {
+      const sameBtn = existing.__zmueBtn === btn;
+      existing.remove();
+      if (sameBtn) return; // toggle closed
+    }
+    if (!item) {
+      ZoteroMarkupEnhancer.log("annotation could not be resolved for tag grid");
+      return;
+    }
+
+    const popup = this._el(doc, "div", { className: "zmue-tg-popup" });
+    popup.id = "zmue-annot-popup";
+    popup.__zmueBtn = btn;
+    doc.body.appendChild(popup);
+
+    this.buildUI(doc, popup, item, true).catch((e) =>
+      ZoteroMarkupEnhancer.log("annot grid build: " + e)
+    );
+
+    const view = doc.defaultView;
+    const r = btn.getBoundingClientRect();
+    const top = Math.min(r.bottom + 4, (view.innerHeight || 600) - 320);
+    const left = Math.min(r.left, (view.innerWidth || 400) - 290);
+    popup.style.top = Math.max(8, top) + "px";
+    popup.style.left = Math.max(8, left) + "px";
+
+    const onDocDown = (e) => {
+      if (!popup.contains(e.target) && e.target !== btn) {
+        popup.remove();
+        doc.removeEventListener("mousedown", onDocDown, true);
+      }
+    };
+    view.setTimeout(() => doc.addEventListener("mousedown", onDocDown, true), 0);
   }
 };
