@@ -5,6 +5,14 @@
 (function () {
   const PREF = "extensions.zotero.markup-enhancer.tagShortcut";
 
+  function plog(m) {
+    try {
+      if (typeof Zotero !== "undefined" && Zotero.MarkupEnhancer) Zotero.MarkupEnhancer.log("prefs: " + m);
+      else if (typeof Zotero !== "undefined") Zotero.debug("[Markup Enhancer] prefs: " + m);
+    } catch (e) { /* ignore */ }
+  }
+  plog("prefs.js loaded");
+
   function format(e) {
     const mods = [];
     if (e.metaKey) mods.push("cmd");
@@ -35,6 +43,7 @@
       try { Zotero.Prefs.set(PREF, cur); } catch (e) { /* ignore */ }
     }
     input.value = cur;
+    plog("shortcut field wired (value=" + cur + ")");
 
     input.addEventListener("keydown", (e) => {
       if (e.key === "Tab") return; // let focus move on
@@ -50,7 +59,7 @@
       const spec = format(e);
       if (spec) {
         input.value = spec;
-        try { Zotero.Prefs.set(PREF, spec); } catch (ex) { /* ignore */ }
+        try { Zotero.Prefs.set(PREF, spec); plog("shortcut recorded: " + spec); } catch (ex) { /* ignore */ }
       }
     }, true);
   }

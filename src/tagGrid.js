@@ -459,11 +459,11 @@ ZoteroMarkupEnhancer.TagGrid = {
 
     if (!this._matchShortcut(e, spec)) return;
 
-    // Ignore while typing in a field (including our own filter input).
+    // Only bail when the user is typing inside OUR own filter field; otherwise
+    // fire even if the reader's annotation note field is focused (which it is
+    // right after selecting an annotation -- that's why Alt+T was typing "™").
     const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
-      return;
-    }
+    if (t && t.closest && t.closest(".zmue-tg-popup")) return;
 
     e.stopPropagation();
     e.preventDefault();
