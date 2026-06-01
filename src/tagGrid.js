@@ -52,9 +52,9 @@ ZoteroMarkupEnhancer.TagGrid = {
       this._readerHandler = null;
     }
     if (this._keysHandler) {
-      try {
-        Zotero.Reader.unregisterEventListener("renderToolbar", this._keysHandler);
-      } catch (e) { /* ignore */ }
+      for (const t of this._keyEvents || []) {
+        try { Zotero.Reader.unregisterEventListener(t, this._keysHandler); } catch (e) { /* ignore */ }
+      }
       this._keysHandler = null;
     }
   },
@@ -295,24 +295,29 @@ ZoteroMarkupEnhancer.TagGrid = {
       try { if (event && event.doc) self._attachKeysDeep(event.doc, event.reader); }
       catch (e) { ZoteroMarkupEnhancer.log("reader keys: " + e); }
     };
+    // Attach keyboard handling on several reader events so we don't depend on
+    // any single one firing.
+    this._keyEvents = ["renderToolbar", "renderTextSelectionPopup", "renderSidebarAnnotationHeader"];
     try {
       Zotero.Reader.registerEventListener(
         "renderSidebarAnnotationHeader", this._readerHandler, ZoteroMarkupEnhancer.id
       );
-      Zotero.Reader.registerEventListener(
-        "renderToolbar", this._keysHandler, ZoteroMarkupEnhancer.id
-      );
+      for (const t of this._keyEvents) {
+        Zotero.Reader.registerEventListener(t, this._keysHandler, ZoteroMarkupEnhancer.id);
+      }
     } catch (e) {
       ZoteroMarkupEnhancer.log("reader tag handler reg failed: " + e);
     }
 
     // Attach to any already-open readers.
+    let existing = 0;
     try {
       for (const reader of Zotero.Reader._readers || []) {
         const doc = reader && reader._iframeWindow && reader._iframeWindow.document;
-        if (doc) this._attachKeysDeep(doc, reader);
+        if (doc) { this._attachKeysDeep(doc, reader); existing++; }
       }
     } catch (e) { /* internal API may differ */ }
+    ZoteroMarkupEnhancer.log("reader handlers registered; existing readers attached=" + existing);
   },
 
   // Attach key/mouse listeners to a reader document and all nested iframes,
@@ -429,6 +434,8 @@ ZoteroMarkupEnhancer.TagGrid = {
     doc.__zmueReader = reader;
     if (doc.__zmueKeys) return;
     doc.__zmueKeys = true;
+    const where = (doc.defaultView && doc.defaultView.frameElement) ? "iframe-doc" : "main-doc";
+    ZoteroMarkupEnhancer.log("keys attached to " + where + " (url=" + (doc.location && doc.location.href || "?") + ")");
     doc.addEventListener("keydown", (e) => this._onReaderKeydown(e, doc), true);
     doc.addEventListener("mousemove", (e) => {
       doc.__zmueMouse = { x: e.clientX, y: e.clientY };
@@ -448,6 +455,17 @@ ZoteroMarkupEnhancer.TagGrid = {
 
     const U = ZoteroMarkupEnhancer.Utils;
     if (!U.get("tagShortcutEnabled")) return;
+
+    // Diagnostic: log key presses that hold a modifier (avoids spamming on
+    // ordinary typing) so we can see whether the listener fires and matches.
+    if (e.altKey || e.ctrlKey || e.metaKey) {
+      ZoteroMarkupEnhancer.log(
+        "keydown code=" + e.code + " alt=" + e.altKey + " ctrl=" + e.ctrlKey +
+        " meta=" + e.metaKey + " shift=" + e.shiftKey +
+        " spec=" + U.get("tagShortcut") + " match=" + this._matchShortcut(e, U.get("tagShortcut"))
+      );
+    }
+
     if (!this._matchShortcut(e, U.get("tagShortcut"))) return;
 
     // Ignore while typing in a field (including our own filter input).
