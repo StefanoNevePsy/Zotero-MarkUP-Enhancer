@@ -31,31 +31,25 @@
   function wire(input) {
     if (input.__zmueWired) return;
     input.__zmueWired = true;
-    input.setAttribute("readonly", "readonly");
-    input.style.cursor = "pointer";
 
-    // Initialise from the pref; if empty/unset, seed the default so the field
-    // and the runtime fall-back agree.
+    // Seed the default when empty so the field and the runtime fall-back agree.
     let cur = "";
     try { cur = Zotero.Prefs.get(PREF) || ""; } catch (e) { /* ignore */ }
     if (!cur) {
       cur = "alt+t";
       try { Zotero.Prefs.set(PREF, cur); } catch (e) { /* ignore */ }
+      input.value = cur;
     }
-    input.value = cur;
-    plog("shortcut field wired (value=" + cur + ")");
+    plog("shortcut field wired (value=" + (input.value || cur) + ")");
 
+    // Press-to-record: only intercept real shortcut combos (a non-shift modifier
+    // held). Plain typing is left alone, so the combo can also be entered as text
+    // and saved by the field's `preference` binding.
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Tab") return; // let focus move on
+      if (!(e.altKey || e.ctrlKey || e.metaKey)) return;
+      if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return;
       e.preventDefault();
       e.stopPropagation();
-      if (e.key === "Backspace" || e.key === "Delete") {
-        input.value = "";
-        try { Zotero.Prefs.set(PREF, ""); } catch (ex) { /* ignore */ }
-        return;
-      }
-      // Ignore presses of modifier keys alone.
-      if (["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return;
       const spec = format(e);
       if (spec) {
         input.value = spec;
