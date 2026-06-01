@@ -14,6 +14,10 @@ var ZoteroMarkupEnhancer = {
   rootURI: null,
   initialized: false,
 
+  // In-memory log ring buffer, readable from Tools -> Developer -> Run JavaScript:
+  //   Zotero.MarkupEnhancer._logs.join("\n")
+  _logs: [],
+
   // Filled in by the sub-module scripts loaded from bootstrap.js.
   Utils: null,
   Palettes: null,
@@ -31,6 +35,9 @@ var ZoteroMarkupEnhancer = {
     this.Utils.ensureDefaultPrefs();
     this._safe("Prefs", () => this._registerPrefs());
 
+    // Expose the namespace so it is reachable from Run JavaScript / other code.
+    try { Zotero.MarkupEnhancer = this; } catch (e) { /* ignore */ }
+
     // Feature modules. Each guards its own failures so one broken feature
     // can never take the whole plugin (or Zotero) down.
     this._safe("ReaderStyler", () => this.ReaderStyler.init());
@@ -44,6 +51,7 @@ var ZoteroMarkupEnhancer = {
     this._safe("ReaderStyler", () => this.ReaderStyler.shutdown());
     this._safe("TagGrid", () => this.TagGrid.shutdown());
     this._safe("OverlapMerger", () => this.OverlapMerger.shutdown());
+    try { delete Zotero.MarkupEnhancer; } catch (e) { /* ignore */ }
     this.initialized = false;
   },
 
@@ -75,6 +83,11 @@ var ZoteroMarkupEnhancer = {
   },
 
   log(msg) {
+    const line = new Date().toISOString().slice(11, 23) + " " + msg;
+    try {
+      this._logs.push(line);
+      if (this._logs.length > 1000) this._logs.splice(0, this._logs.length - 1000);
+    } catch (e) { /* ignore */ }
     Zotero.debug("[Markup Enhancer] " + msg);
   },
 

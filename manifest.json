@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Markup Enhancer",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Custom highlighter color palettes (visual only, sync-safe), rounded highlights, a fast colored tag grid, and automatic merging of overlapping highlights for Zotero.",
   "author": "Stefano Neve",
   "homepage_url": "https://github.com/StefanoNevePsy/Zotero-MarkUP-Enhancer",
