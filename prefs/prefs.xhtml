@@ -1,0 +1,56 @@
+<vbox xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+      xmlns:html="http://www.w3.org/1999/xhtml">
+
+  <groupbox>
+    <label><html:h2 data-l10n-id="markup-enhancer-prefs-highlights"/></label>
+
+    <hbox align="center">
+      <label data-l10n-id="markup-enhancer-prefs-palette" flex="1"/>
+      <menulist preference="extensions.zotero.markup-enhancer.palette" native="true">
+        <menupopup>
+          <menuitem value="pastel" label="Pastel"/>
+          <menuitem value="neon" label="Neon"/>
+          <menuitem value="earthy" label="Earthy"/>
+          <menuitem value="default" label="Default (Zotero)"/>
+          <menuitem value="custom" label="Custom"/>
+        </menupopup>
+      </menulist>
+    </hbox>
+    <description class="zmue-desc" data-l10n-id="markup-enhancer-prefs-palette-desc"/>
+
+    <checkbox preference="extensions.zotero.markup-enhancer.roundedCorners"
+              data-l10n-id="markup-enhancer-prefs-rounded" native="true"/>
+
+    <hbox align="center">
+      <label data-l10n-id="markup-enhancer-prefs-radius" flex="1"/>
+      <html:input type="number" min="0" max="20" style="width:5em"
+                  preference="extensions.zotero.markup-enhancer.cornerRadius"/>
+    </hbox>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2 data-l10n-id="markup-enhancer-prefs-custom"/></label>
+    <description class="zmue-desc" data-l10n-id="markup-enhancer-prefs-custom-desc"/>
+    <vbox id="zmue-custom-rows">
+      <!-- populated by prefs.js -->
+    </vbox>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2 data-l10n-id="markup-enhancer-prefs-merge"/></label>
+    <checkbox preference="extensions.zotero.markup-enhancer.mergeOverlapping"
+              data-l10n-id="markup-enhancer-prefs-merge-on" native="true"/>
+    <checkbox preference="extensions.zotero.markup-enhancer.mergeSameColorOnly"
+              data-l10n-id="markup-enhancer-prefs-merge-samecolor" native="true"/>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2 data-l10n-id="markup-enhancer-prefs-tags"/></label>
+    <hbox align="center">
+      <label data-l10n-id="markup-enhancer-prefs-recentcount" flex="1"/>
+      <html:input type="number" min="0" max="40" style="width:5em"
+                  preference="extensions.zotero.markup-enhancer.recentTagCount"/>
+    </hbox>
+  </groupbox>
+
+</vbox>

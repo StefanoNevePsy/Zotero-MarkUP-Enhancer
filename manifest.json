@@ -1,0 +1,20 @@
+{
+  "manifest_version": 2,
+  "name": "Markup Enhancer",
+  "version": "0.1.0",
+  "description": "Custom highlighter color palettes (visual only, sync-safe), rounded highlights, a fast colored tag grid, and automatic merging of overlapping highlights for Zotero.",
+  "author": "Stefano Neve",
+  "homepage_url": "https://github.com/StefanoNevePsy/Zotero-MarkUP-Enhancer",
+  "icons": {
+    "48": "icons/icon48.svg",
+    "96": "icons/icon96.svg"
+  },
+  "applications": {
+    "zotero": {
+      "id": "markup-enhancer@stefanonevepsy",
+      "update_url": "https://raw.githubusercontent.com/StefanoNevePsy/Zotero-MarkUP-Enhancer/main/update.json",
+      "strict_min_version": "7.0",
+      "strict_max_version": "9.*"
+    }
+  }
+}
