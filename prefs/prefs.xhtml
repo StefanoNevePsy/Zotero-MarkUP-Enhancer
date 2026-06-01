@@ -94,6 +94,17 @@
       <html:input type="number" min="0" max="40" style="width:5em"
                   preference="extensions.zotero.markup-enhancer.recentTagCount"/>
     </hbox>
+    <hbox align="center">
+      <html:input type="checkbox" id="zmue-tagshortcut-on"
+                  preference="extensions.zotero.markup-enhancer.tagShortcutEnabled"/>
+      <label control="zmue-tagshortcut-on" data-l10n-id="markup-enhancer-prefs-shortcut-on"/>
+    </hbox>
+    <hbox align="center">
+      <label data-l10n-id="markup-enhancer-prefs-shortcut" flex="1"/>
+      <html:input type="text" style="width:8em"
+                  preference="extensions.zotero.markup-enhancer.tagShortcut"/>
+    </hbox>
+    <description class="zmue-desc" data-l10n-id="markup-enhancer-prefs-shortcut-desc"/>
   </groupbox>
 
 </vbox>

@@ -294,6 +294,7 @@ ZoteroMarkupEnhancer.TagGrid = {
     const { reader, doc, params, append } = event;
     if (!doc) return;
     this._injectStyle(doc);
+    this._ensureReaderKeys(doc, reader);
 
     const btn = this._el(doc, "button", { className: "zmue-tg-annot-btn" });
     btn.textContent = "🏷";
@@ -312,32 +313,153 @@ ZoteroMarkupEnhancer.TagGrid = {
     }
   },
 
-  _resolveAnnotation(reader, params) {
+  _findAnnotationItem(reader, key) {
+    if (!key) return null;
+    for (const id of reader.annotationItemIDs || []) {
+      const it = Zotero.Items.get(id);
+      if (it && (it.key === key || it.id === key)) return it;
+    }
     try {
-      let key = null;
-      if (params) {
-        if (params.annotation) key = params.annotation.id || params.annotation.key;
-        key = key || params.id || params.key || params.annotationKey;
-        if (!key && Array.isArray(params.ids) && params.ids.length) key = params.ids[0];
+      const att = Zotero.Items.get(reader.itemID);
+      if (att) {
+        const a = Zotero.Items.getByLibraryAndKey(att.libraryID, key);
+        if (a) return a;
       }
-      ZoteroMarkupEnhancer.log(
-        "annot header params=[" + (params ? Object.keys(params).join(",") : "") + "] key=" + key
-      );
-      if (!key) return null;
+    } catch (e) { /* ignore */ }
+    return null;
+  },
 
-      for (const id of reader.annotationItemIDs || []) {
-        const it = Zotero.Items.get(id);
-        if (it && (it.key === key || it.id === key)) return it;
-      }
-      const attachment = Zotero.Items.get(reader.itemID);
-      if (attachment) {
-        const ann = Zotero.Items.getByLibraryAndKey(attachment.libraryID, key);
-        if (ann) return ann;
+  _resolveAnnotation(reader, params) {
+    let key = null;
+    if (params) {
+      if (params.annotation) key = params.annotation.id || params.annotation.key;
+      key = key || params.id || params.key || params.annotationKey;
+      if (!key && Array.isArray(params.ids) && params.ids.length) key = params.ids[0];
+    }
+    const item = this._findAnnotationItem(reader, key);
+    if (!item) {
+      ZoteroMarkupEnhancer.log(
+        "tag grid: annotation not resolved (params=" +
+        (params ? Object.keys(params).join(",") : "") + ")"
+      );
+    }
+    return item;
+  },
+
+  // The annotation currently selected in the reader, read from its state.
+  _selectedAnnotationItem(reader) {
+    try {
+      const ir = reader && (reader._internalReader || reader._reader);
+      const state = ir && (ir._state || ir.state);
+      const ids = state && state.selectedAnnotationIDs;
+      if (ids && ids.length) {
+        return this._findAnnotationItem(reader, ids[ids.length - 1]);
       }
     } catch (e) {
-      ZoteroMarkupEnhancer.log("resolve annotation: " + e);
+      ZoteroMarkupEnhancer.log("selected annotation: " + e);
     }
     return null;
+  },
+
+  // ---- keyboard shortcut (open near selection, Esc to close) ------------
+
+  _ensureReaderKeys(doc, reader) {
+    doc.__zmueReader = reader;
+    if (doc.__zmueKeys) return;
+    doc.__zmueKeys = true;
+    doc.addEventListener("keydown", (e) => this._onReaderKeydown(e, doc), true);
+    doc.addEventListener("mousemove", (e) => {
+      doc.__zmueMouse = { x: e.clientX, y: e.clientY };
+    }, true);
+  },
+
+  _onReaderKeydown(e, doc) {
+    const popup = doc.getElementById("zmue-annot-popup");
+
+    // Esc closes our popup (and stops the reader from also acting on it).
+    if (e.key === "Escape" && popup) {
+      popup.remove();
+      e.stopPropagation();
+      e.preventDefault();
+      return;
+    }
+
+    const U = ZoteroMarkupEnhancer.Utils;
+    if (!U.get("tagShortcutEnabled")) return;
+    if (!this._matchShortcut(e, U.get("tagShortcut"))) return;
+
+    // Ignore while typing in a field (including our own filter input).
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
+      return;
+    }
+
+    e.stopPropagation();
+    e.preventDefault();
+    if (popup) { popup.remove(); return; } // toggle off
+
+    const item = this._selectedAnnotationItem(doc.__zmueReader);
+    if (!item) {
+      ZoteroMarkupEnhancer.log("tag shortcut: no annotation selected");
+      return;
+    }
+    this._openAnnotationGridAt(doc, item);
+  },
+
+  // Match a shortcut spec like "alt+t" / "ctrl+shift+t" against a keydown event.
+  _matchShortcut(e, spec) {
+    if (!spec) return false;
+    const parts = String(spec).toLowerCase().split("+").map((s) => s.trim()).filter(Boolean);
+    const key = parts.pop();
+    const need = { alt: false, ctrl: false, meta: false, shift: false };
+    for (const p of parts) {
+      if (p === "alt" || p === "option" || p === "opt") need.alt = true;
+      else if (p === "ctrl" || p === "control") need.ctrl = true;
+      else if (p === "cmd" || p === "meta" || p === "command" || p === "win") need.meta = true;
+      else if (p === "shift") need.shift = true;
+    }
+    let keyMatch;
+    if (key && key.length === 1 && key >= "a" && key <= "z") keyMatch = e.code === "Key" + key.toUpperCase();
+    else if (key && key.length === 1 && key >= "0" && key <= "9") keyMatch = e.code === "Digit" + key;
+    else keyMatch = e.key && e.key.toLowerCase() === key;
+    if (!keyMatch) return false;
+    return e.altKey === need.alt && e.ctrlKey === need.ctrl &&
+           e.metaKey === need.meta && e.shiftKey === need.shift;
+  },
+
+  // ---- popup (shared by button + shortcut) ------------------------------
+
+  _showAnnotationPopup(doc, item, x, y, anchorBtn) {
+    if (!item) {
+      ZoteroMarkupEnhancer.log("annotation could not be resolved for tag grid");
+      return null;
+    }
+    const view = doc.defaultView;
+    const W = 290, H = 320;
+
+    const popup = this._el(doc, "div", { className: "zmue-tg-popup" });
+    popup.id = "zmue-annot-popup";
+    popup.__zmueBtn = anchorBtn || null;
+    doc.body.appendChild(popup);
+
+    this.buildUI(doc, popup, item, true).then(() => {
+      const inp = popup.querySelector(".zmue-tg-input");
+      if (inp) inp.focus();
+    }).catch((e) => ZoteroMarkupEnhancer.log("annot grid build: " + e));
+
+    const left = Math.min(x, (view.innerWidth || 400) - W);
+    const top = Math.min(y, (view.innerHeight || 600) - H);
+    popup.style.left = Math.max(8, left) + "px";
+    popup.style.top = Math.max(8, top) + "px";
+
+    const onDocDown = (ev) => {
+      if (!popup.contains(ev.target) && ev.target !== anchorBtn) {
+        popup.remove();
+        doc.removeEventListener("mousedown", onDocDown, true);
+      }
+    };
+    view.setTimeout(() => doc.addEventListener("mousedown", onDocDown, true), 0);
+    return popup;
   },
 
   _toggleAnnotationGrid(doc, btn, item) {
@@ -347,33 +469,17 @@ ZoteroMarkupEnhancer.TagGrid = {
       existing.remove();
       if (sameBtn) return; // toggle closed
     }
-    if (!item) {
-      ZoteroMarkupEnhancer.log("annotation could not be resolved for tag grid");
-      return;
-    }
-
-    const popup = this._el(doc, "div", { className: "zmue-tg-popup" });
-    popup.id = "zmue-annot-popup";
-    popup.__zmueBtn = btn;
-    doc.body.appendChild(popup);
-
-    this.buildUI(doc, popup, item, true).catch((e) =>
-      ZoteroMarkupEnhancer.log("annot grid build: " + e)
-    );
-
-    const view = doc.defaultView;
     const r = btn.getBoundingClientRect();
-    const top = Math.min(r.bottom + 4, (view.innerHeight || 600) - 320);
-    const left = Math.min(r.left, (view.innerWidth || 400) - 290);
-    popup.style.top = Math.max(8, top) + "px";
-    popup.style.left = Math.max(8, left) + "px";
+    this._showAnnotationPopup(doc, item, r.left, r.bottom + 4, btn);
+  },
 
-    const onDocDown = (e) => {
-      if (!popup.contains(e.target) && e.target !== btn) {
-        popup.remove();
-        doc.removeEventListener("mousedown", onDocDown, true);
-      }
-    };
-    view.setTimeout(() => doc.addEventListener("mousedown", onDocDown, true), 0);
+  _openAnnotationGridAt(doc, item) {
+    const existing = doc.getElementById("zmue-annot-popup");
+    if (existing) existing.remove();
+    const view = doc.defaultView;
+    const m = doc.__zmueMouse;
+    const x = m ? m.x : (view.innerWidth || 400) / 2 - 145;
+    const y = m ? m.y + 10 : (view.innerHeight || 600) / 2 - 150;
+    this._showAnnotationPopup(doc, item, x, y, null);
   }
 };

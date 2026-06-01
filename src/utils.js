@@ -22,7 +22,9 @@ ZoteroMarkupEnhancer.Utils = {
     "mergeSameColorOnly": true,
     "tagColors": "{}",                    // JSON: { tagName: hex } (persisted auto-assignments)
     "recentTags": "[]",                   // JSON: [tagName, ...] most-recent-first
-    "recentTagCount": 12
+    "recentTagCount": 12,
+    "tagShortcutEnabled": true,
+    "tagShortcut": "alt+t"                 // open the tag grid for the selected annotation
   },
 
   key(name) {

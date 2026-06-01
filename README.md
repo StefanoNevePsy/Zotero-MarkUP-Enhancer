@@ -13,7 +13,9 @@ A Zotero plugin (Zotero 7 / 8 / 9) that improves highlighting and tagging:
    Each tag gets a **stable** colour (Zotero's own tag colour if set, otherwise a
    pleasant auto-assigned colour that never changes), so tags are recognisable at
    a glance. The same grid is available for **annotations**: a 🏷 button in each
-   annotation's header in the reader sidebar opens the grid as a popup.
+   annotation's header in the reader sidebar opens the grid as a popup, and a
+   configurable keyboard shortcut (default **Alt+T**) opens it next to the
+   selected annotation — press **Esc** to close.
 4. **Merge overlapping highlights** — when a new highlight overlaps an existing
    one, the two are merged into a single annotation (rectangles unioned, text /
    comments / tags combined) instead of leaving two duplicated notes.

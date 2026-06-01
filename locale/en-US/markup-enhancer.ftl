@@ -14,3 +14,6 @@ markup-enhancer-prefs-merge-on = Merge overlapping highlights into one annotatio
 markup-enhancer-prefs-merge-samecolor = Only merge highlights of the same colour
 markup-enhancer-prefs-tags = Tag grid
 markup-enhancer-prefs-recentcount = Number of recent tags shown first
+markup-enhancer-prefs-shortcut-on = Keyboard shortcut to tag the selected annotation
+markup-enhancer-prefs-shortcut = Shortcut
+markup-enhancer-prefs-shortcut-desc = In the reader, select an annotation and press this shortcut to open the tag grid next to it; press Esc to close. Format: modifiers + key, e.g. "alt+t" or "ctrl+shift+t".
