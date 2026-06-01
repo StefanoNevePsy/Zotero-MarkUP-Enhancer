@@ -14,6 +14,7 @@ ZoteroMarkupEnhancer.TagGrid = {
   HTML_NS: "http://www.w3.org/1999/xhtml",
   sectionID: null,
   _readerHandler: null,
+  _keysHandler: null,
 
   init() {
     const rootURI = ZoteroMarkupEnhancer.rootURI;
@@ -49,6 +50,12 @@ ZoteroMarkupEnhancer.TagGrid = {
         Zotero.Reader.unregisterEventListener("renderSidebarAnnotationHeader", this._readerHandler);
       } catch (e) { /* ignore */ }
       this._readerHandler = null;
+    }
+    if (this._keysHandler) {
+      try {
+        Zotero.Reader.unregisterEventListener("renderToolbar", this._keysHandler);
+      } catch (e) { /* ignore */ }
+      this._keysHandler = null;
     }
   },
 
@@ -281,13 +288,68 @@ ZoteroMarkupEnhancer.TagGrid = {
       try { self._onAnnotationHeader(event); }
       catch (e) { ZoteroMarkupEnhancer.log("annot header: " + e); }
     };
+    // renderToolbar fires once when a reader opens -> attach keyboard handling
+    // to the reader document and every nested view iframe (where the PDF, and
+    // thus keyboard focus, usually lives).
+    this._keysHandler = (event) => {
+      try { if (event && event.doc) self._attachKeysDeep(event.doc, event.reader); }
+      catch (e) { ZoteroMarkupEnhancer.log("reader keys: " + e); }
+    };
     try {
       Zotero.Reader.registerEventListener(
         "renderSidebarAnnotationHeader", this._readerHandler, ZoteroMarkupEnhancer.id
       );
+      Zotero.Reader.registerEventListener(
+        "renderToolbar", this._keysHandler, ZoteroMarkupEnhancer.id
+      );
     } catch (e) {
       ZoteroMarkupEnhancer.log("reader tag handler reg failed: " + e);
     }
+
+    // Attach to any already-open readers.
+    try {
+      for (const reader of Zotero.Reader._readers || []) {
+        const doc = reader && reader._iframeWindow && reader._iframeWindow.document;
+        if (doc) this._attachKeysDeep(doc, reader);
+      }
+    } catch (e) { /* internal API may differ */ }
+  },
+
+  // Attach key/mouse listeners to a reader document and all nested iframes,
+  // including ones added later (lazy-loaded views).
+  _attachKeysDeep(doc, reader) {
+    this._ensureReaderKeys(doc, reader);
+
+    const hook = (frame) => {
+      const wire = () => {
+        try { if (frame.contentDocument) this._ensureReaderKeys(frame.contentDocument, reader); }
+        catch (e) { /* ignore */ }
+      };
+      wire();
+      frame.addEventListener("load", wire);
+    };
+
+    try {
+      for (const f of doc.querySelectorAll("iframe")) hook(f);
+    } catch (e) { /* ignore */ }
+
+    try {
+      if (!doc.__zmueFrameObs && doc.defaultView) {
+        const obs = new doc.defaultView.MutationObserver((muts) => {
+          for (const m of muts) {
+            for (const n of m.addedNodes) {
+              if (n.nodeType !== 1) continue;
+              if (n.tagName === "IFRAME") hook(n);
+              else if (n.querySelectorAll) {
+                for (const f of n.querySelectorAll("iframe")) hook(f);
+              }
+            }
+          }
+        });
+        obs.observe(doc.documentElement || doc.body, { childList: true, subtree: true });
+        doc.__zmueFrameObs = obs;
+      }
+    } catch (e) { /* ignore */ }
   },
 
   _onAnnotationHeader(event) {
