@@ -125,12 +125,45 @@ ZoteroMarkupEnhancer.ReaderStyler = {
   // ---- reverse safety net: ensure the DB only ever stores standard colours ----
 
   notify(event, type, ids) {
-    if (this._busy) return;
     if (type !== "item" || (event !== "modify" && event !== "add")) return;
     if (!this._active()) return;
-    this._coerce(ids.slice()).catch((e) =>
-      ZoteroMarkupEnhancer.log("color net: " + e)
+
+    // Recolour annotations the reader created/edited itself. Zotero's own
+    // notify() skips re-pushing changes that originated in a reader instance
+    // (extraData instanceID match), so a freshly-drawn highlight keeps the
+    // reader's local standard colour. We push it back through the wrapped
+    // toJSON so the canvas is redrawn in the palette colour.
+    this._pushColors(ids.slice()).catch((e) =>
+      ZoteroMarkupEnhancer.log("push colors: " + e)
     );
+
+    // Safety net: keep the stored colour standard.
+    if (!this._busy) {
+      this._coerce(ids.slice()).catch((e) =>
+        ZoteroMarkupEnhancer.log("color net: " + e)
+      );
+    }
+  },
+
+  // Push current-palette colours to any open reader showing these annotations.
+  async _pushColors(ids) {
+    let readers;
+    try { readers = Zotero.Reader._readers || []; } catch (e) { return; }
+    if (!readers.length) return;
+
+    for (const id of ids) {
+      let item;
+      try { item = Zotero.Items.get(id); } catch (e) { continue; }
+      if (!item || !item.isAnnotation || !item.isAnnotation()) continue;
+      const parent = item.parentID;
+      for (const reader of readers) {
+        try {
+          if (reader.itemID === parent && typeof reader.setAnnotations === "function") {
+            reader.setAnnotations([item]); // async; fire-and-forget
+          }
+        } catch (e) { /* ignore */ }
+      }
+    }
   },
 
   // Build displayed -> standard, dropping any ambiguous (colliding) entries.
@@ -171,14 +204,21 @@ ZoteroMarkupEnhancer.ReaderStyler = {
     }
   },
 
-  // Force open readers to re-pull annotation data (colours) after a palette change.
-  refreshReaders() {
-    try {
-      for (const reader of Zotero.Reader._readers || []) {
-        if (reader && typeof reader.reload === "function") reader.reload();
-      }
-    } catch (e) {
-      // If reload is unavailable, the new palette applies next time the reader opens.
+  // Re-push every annotation to open readers after a palette change, so colours
+  // update live without a disruptive full reload (keeps scroll position).
+  async refreshReaders() {
+    let readers;
+    try { readers = Zotero.Reader._readers || []; } catch (e) { return; }
+    for (const reader of readers) {
+      try {
+        const attachment = Zotero.Items.get(reader.itemID);
+        if (!attachment || typeof attachment.getAnnotations !== "function") continue;
+        let anns = attachment.getAnnotations();
+        if (anns && typeof anns.then === "function") anns = await anns;
+        if (anns && anns.length && typeof reader.setAnnotations === "function") {
+          reader.setAnnotations(anns);
+        }
+      } catch (e) { /* ignore */ }
     }
   },
 

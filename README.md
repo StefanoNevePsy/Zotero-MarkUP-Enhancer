@@ -91,8 +91,9 @@ icons/                   Plugin and section icons
 - **Palette** relies on `Zotero.Annotations.toJSON` being the serializer the
   reader uses for annotation colour. This is an internal API; if a future Zotero
   build changes it, the palette display would need adjusting (the safety net
-  still protects your data either way). After changing the palette, the reader is
-  reloaded automatically where supported — otherwise reopen the document.
+  still protects your data either way). Highlights created during a session are
+  re-pushed to the reader so they pick up the palette colour too, and changing
+  the palette re-colours open readers live (no reload).
 - **Rounded corners** only apply to DOM-based reader views (EPUB / web
   snapshots). PDF highlights are sharp rectangles drawn on a canvas and cannot be
   rounded without patching the reader's internal drawing, so rounding has no
