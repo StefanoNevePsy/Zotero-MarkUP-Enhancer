@@ -25,9 +25,16 @@
     input.__zmueWired = true;
     input.setAttribute("readonly", "readonly");
     input.style.cursor = "pointer";
-    if (!input.value) {
-      try { input.value = Zotero.Prefs.get(PREF) || ""; } catch (e) { /* ignore */ }
+
+    // Initialise from the pref; if empty/unset, seed the default so the field
+    // and the runtime fall-back agree.
+    let cur = "";
+    try { cur = Zotero.Prefs.get(PREF) || ""; } catch (e) { /* ignore */ }
+    if (!cur) {
+      cur = "alt+t";
+      try { Zotero.Prefs.set(PREF, cur); } catch (e) { /* ignore */ }
     }
+    input.value = cur;
 
     input.addEventListener("keydown", (e) => {
       if (e.key === "Tab") return; // let focus move on

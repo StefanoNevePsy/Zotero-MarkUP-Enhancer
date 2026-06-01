@@ -455,18 +455,9 @@ ZoteroMarkupEnhancer.TagGrid = {
 
     const U = ZoteroMarkupEnhancer.Utils;
     if (!U.get("tagShortcutEnabled")) return;
+    const spec = U.get("tagShortcut") || "alt+t"; // fall back if unset/empty
 
-    // Diagnostic: log key presses that hold a modifier (avoids spamming on
-    // ordinary typing) so we can see whether the listener fires and matches.
-    if (e.altKey || e.ctrlKey || e.metaKey) {
-      ZoteroMarkupEnhancer.log(
-        "keydown code=" + e.code + " alt=" + e.altKey + " ctrl=" + e.ctrlKey +
-        " meta=" + e.metaKey + " shift=" + e.shiftKey +
-        " spec=" + U.get("tagShortcut") + " match=" + this._matchShortcut(e, U.get("tagShortcut"))
-      );
-    }
-
-    if (!this._matchShortcut(e, U.get("tagShortcut"))) return;
+    if (!this._matchShortcut(e, spec)) return;
 
     // Ignore while typing in a field (including our own filter input).
     const t = e.target;
