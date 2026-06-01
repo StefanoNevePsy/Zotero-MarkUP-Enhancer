@@ -65,5 +65,14 @@ ZoteroMarkupEnhancer.Palettes = {
 
   names() {
     return Object.keys(this.PALETTES).concat(["custom"]);
+  },
+
+  // Lowercased set of Zotero's standard annotation colours. Used by the safety
+  // net to make sure a legitimately-standard colour is never rewritten.
+  standardSet() {
+    const U = ZoteroMarkupEnhancer.Utils;
+    const set = new Set();
+    for (const std of Object.values(this.STANDARD)) set.add(U.toHex6(std));
+    return set;
   }
 };

@@ -17,15 +17,22 @@ A Zotero plugin (Zotero 7 / 8 / 9) that improves highlighting and tagging:
    one, the two are merged into a single annotation (rectangles unioned, text /
    comments / tags combined) instead of leaving two duplicated notes.
 
-## Why it is sync-safe
+## How the palette works (and why it is sync-safe)
 
-Zotero stores each annotation's colour as one of 8 fixed hex values and syncs
-that value. Markup Enhancer leaves those stored values untouched. The palette is
-applied as a **visual re-tint** inside the reader (the original colour is
-remembered on each highlight element and re-mapped live), so what is written to
-disk and to the sync server is always the standard Zotero colour.
+Zotero's reader **draws PDF highlights onto a `<canvas>`** from each annotation's
+`color` value — there is no DOM/CSS element to restyle. So the palette is applied
+at the **data layer**:
 
-The overlap merger *does* change data — but only by producing one ordinary
+- **Display:** `Zotero.Annotations.toJSON` is wrapped so the colour handed to the
+  reader is the palette colour (standard → displayed). The canvas then draws the
+  palette colour.
+- **Storage:** a guarded `Notifier` "safety net" maps any palette colour that the
+  reader echoes back into the database back to its **standard** colour. It can
+  only ever turn a known palette colour into its matching standard colour and
+  never touches a colour that is already standard, so the stored value — and
+  therefore sync — always stays standard.
+
+The overlap merger *does* change data, but only by producing one ordinary
 annotation in place of two, which syncs normally. You can turn it off in the
 preferences.
 
@@ -81,11 +88,17 @@ icons/                   Plugin and section icons
 
 ## Notes & limitations
 
-- The reader re-tinting matches highlights by their stored standard colour and
-  re-colours the rendered element. Reader internals can change between Zotero
-  versions; the selectors in `src/readerStyler.js` are intentionally broad and
-  easy to adjust if a future reader build renders highlights differently.
-- Corner rounding applies to highlight rectangles rendered as HTML elements.
+- **Palette** relies on `Zotero.Annotations.toJSON` being the serializer the
+  reader uses for annotation colour. This is an internal API; if a future Zotero
+  build changes it, the palette display would need adjusting (the safety net
+  still protects your data either way). After changing the palette, the reader is
+  reloaded automatically where supported — otherwise reopen the document.
+- **Rounded corners** only apply to DOM-based reader views (EPUB / web
+  snapshots). PDF highlights are sharp rectangles drawn on a canvas and cannot be
+  rounded without patching the reader's internal drawing, so rounding has no
+  effect on PDFs.
+- The reader's colour picker shows Zotero's standard swatches (it is hardcoded in
+  the reader), so picking a colour there stores a standard colour as expected.
 - The overlap merger acts on newly-created highlights and merges one overlapping
   neighbour per creation; chains of overlaps resolve as each highlight is added.
 

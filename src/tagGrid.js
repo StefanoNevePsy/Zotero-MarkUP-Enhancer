@@ -131,6 +131,17 @@ ZoteroMarkupEnhancer.TagGrid = {
     const libraryID = item.libraryID;
     const allNames = await this._allTagNames(libraryID);
 
+    // A tag that lived only on this item is purged from the library once removed,
+    // so getAll() would drop it on the next render. Union in the recently-used
+    // names (and the item's own tags) so just-added tags stay re-addable.
+    const known = new Set(allNames);
+    for (const n of ZoteroMarkupEnhancer.TagColors.recent()) {
+      if (!known.has(n)) { allNames.push(n); known.add(n); }
+    }
+    for (const t of item.getTags() || []) {
+      if (!known.has(t.tag)) { allNames.push(t.tag); known.add(t.tag); }
+    }
+
     const currentNames = () => new Set((item.getTags() || []).map((t) => t.tag));
 
     const buildGrid = (filterRaw) => {

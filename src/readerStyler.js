@@ -1,227 +1,227 @@
 /* eslint-disable no-undef */
-// Visually re-tints reader highlights to the active palette and rounds their
-// corners -- WITHOUT touching the stored annotation colour (sync-safe).
+// Applies highlighter palettes to the reader -- sync-safe.
 //
-// How it works:
-//   The PDF/EPUB reader renders each highlight rectangle with the annotation's
-//   stored colour applied inline (background-color, or an SVG `fill`). We watch
-//   the reader document, and whenever an element carries one of Zotero's 8
-//   standard colours we swap the *displayed* value for the palette equivalent
-//   and remember the original on the node (data-zmue-orig) so we can re-map it
-//   instantly when the user switches palette. Nothing is written back to the
-//   annotation, so the database and sync server keep the standard colour.
+// IMPORTANT REALITY: Zotero's PDF reader draws highlights onto a <canvas> from
+// each annotation's `color` value (see zotero/reader pdf-view.js ->
+// drawAnnotationsOnCanvas). There is therefore NO DOM/CSS element to restyle for
+// PDF highlights. The only way to change the displayed colour is to change the
+// `color` in the annotation DATA that is handed to the reader.
+//
+// Strategy:
+//   * FORWARD (display): wrap Zotero.Annotations.toJSON so the colour the reader
+//     receives is the palette colour (standard -> displayed). This is what the
+//     canvas draws, so highlights appear in the chosen palette.
+//   * REVERSE (storage): the reader echoes the colour it holds back when an
+//     annotation is edited (drag/resize/comment), which could persist a palette
+//     colour. A guarded Notifier "safety net" maps any palette colour that
+//     reaches the database back to its standard colour. It can ONLY ever turn a
+//     known palette colour into its corresponding standard colour, and never
+//     touches a colour that is already standard -- so the stored data, and
+//     therefore sync, always stays "standard".
+//
+// Rounded corners: only achievable for DOM-based views (EPUB/snapshots), applied
+// via injected CSS. PDF highlights are sharp canvas rectangles and cannot be
+// rounded without patching the reader's internal drawing.
 
 ZoteroMarkupEnhancer.ReaderStyler = {
-  _docs: new Set(),
-  _handler: null,
+  _origToJSON: null,
+  _notifierID: null,
+  _busy: false,
   _prefSymbols: [],
-  _eventTypes: [
-    "renderToolbar",
-    "renderSidebarAnnotationHeader",
-    "renderTextSelectionPopup"
-  ],
+  _cssHandler: null,
+  _cssEventTypes: ["renderToolbar", "renderSidebarAnnotationHeader"],
 
   init() {
-    const self = this;
-    this._handler = (event) => {
-      try {
-        if (event && event.doc) self.attach(event.doc);
-      } catch (e) {
-        ZoteroMarkupEnhancer.log("reader handler: " + e);
-      }
-    };
+    this._wrapToJSON();
 
-    for (const type of this._eventTypes) {
-      Zotero.Reader.registerEventListener(type, this._handler, ZoteroMarkupEnhancer.id);
-    }
+    // Safety net: keep the database colour standard.
+    this._notifierID = Zotero.Notifier.registerObserver(
+      this, ["item"], "zmue-color-net", 80
+    );
 
-    // Re-apply when any visual preference changes.
+    // Re-render open readers when the palette changes.
     const U = ZoteroMarkupEnhancer.Utils;
-    const watch = ["palette", "customPalette", "roundedCorners", "cornerRadius"];
-    for (const name of watch) {
+    for (const name of ["palette", "customPalette"]) {
       try {
         const sym = Zotero.Prefs.registerObserver(
           "extensions.zotero." + U.key(name),
-          () => this.reapplyAll(),
+          () => this.refreshReaders(),
           false
         );
         this._prefSymbols.push(sym);
-      } catch (e) {
-        ZoteroMarkupEnhancer.log("pref observer: " + e);
-      }
+      } catch (e) { /* ignore */ }
     }
 
-    // Attach to any already-open readers.
-    try {
-      for (const reader of Zotero.Reader._readers || []) {
-        const doc = reader && reader._iframeWindow && reader._iframeWindow.document;
-        if (doc) this.attach(doc);
-      }
-    } catch (e) { /* internal API may differ between versions */ }
+    // Rounded corners for DOM-based reader views (EPUB / snapshots).
+    this._installRoundingCss();
   },
 
   shutdown() {
-    for (const type of this._eventTypes) {
-      try {
-        Zotero.Reader.unregisterEventListener(type, this._handler);
-      } catch (e) { /* ignore */ }
+    this._unwrapToJSON();
+    if (this._notifierID) {
+      try { Zotero.Notifier.unregisterObserver(this._notifierID); } catch (e) { /* ignore */ }
+      this._notifierID = null;
     }
     for (const sym of this._prefSymbols) {
       try { Zotero.Prefs.unregisterObserver(sym); } catch (e) { /* ignore */ }
     }
     this._prefSymbols = [];
-
-    for (const doc of this._docs) {
-      this._detach(doc);
-    }
-    this._docs.clear();
-  },
-
-  attach(doc) {
-    if (!doc || !doc.body || doc.__zmueAttached) return;
-    doc.__zmueAttached = true;
-    this._docs.add(doc);
-
-    this._injectStyle(doc);
-
-    // Re-tint everything already on screen, then watch for new highlights.
-    this._scan(doc.body);
-
-    const observer = new doc.defaultView.MutationObserver((mutations) => {
-      for (const m of mutations) {
-        for (const node of m.addedNodes) {
-          if (node.nodeType === 1) this._scan(node);
-        }
-        if (m.type === "attributes" && m.target.nodeType === 1) {
-          this._recolor(m.target);
-        }
+    if (this._cssHandler) {
+      for (const t of this._cssEventTypes) {
+        try { Zotero.Reader.unregisterEventListener(t, this._cssHandler); } catch (e) { /* ignore */ }
       }
-    });
-    observer.observe(doc.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["style", "fill"]
-    });
-    doc.__zmueObserver = observer;
+      this._cssHandler = null;
+    }
   },
 
-  _detach(doc) {
+  _active() {
+    return ZoteroMarkupEnhancer.Utils.get("palette") !== "default";
+  },
+
+  // ---- forward map: standard -> displayed (what the reader/canvas draws) ----
+
+  _mapColor(json) {
     try {
-      if (doc.__zmueObserver) doc.__zmueObserver.disconnect();
-      const style = doc.getElementById("zmue-reader-style");
-      if (style) style.remove();
-    } catch (e) { /* ignore */ }
-    delete doc.__zmueAttached;
-    delete doc.__zmueObserver;
-  },
-
-  _injectStyle(doc) {
-    if (doc.getElementById("zmue-reader-style")) return;
-    const U = ZoteroMarkupEnhancer.Utils;
-    const radius = (Number(U.get("cornerRadius")) || 4) + "px";
-    const rounded = U.get("roundedCorners");
-
-    // Broad, defensive selectors covering known reader highlight structures.
-    // Inline re-tinting (below) is what actually recolours; this mainly handles
-    // the rounded-corner styling that CSS does more cleanly than JS.
-    const css = `
-      .highlight,
-      .highlight .rect,
-      [data-annotation-type="highlight"],
-      .annotation-highlight,
-      div[data-zmue-orig] {
-        border-radius: ${rounded ? radius : "0"} !important;
+      if (!this._active() || !json || !json.color) return json;
+      const map = ZoteroMarkupEnhancer.Palettes.activeMap();
+      const hex = ZoteroMarkupEnhancer.Utils.toHex6(json.color);
+      if (hex && map[hex] && map[hex] !== hex) {
+        json.color = map[hex];
       }
-    `;
-    const style = doc.createElementNS("http://www.w3.org/1999/xhtml", "style");
-    style.id = "zmue-reader-style";
-    style.textContent = css;
-    (doc.head || doc.documentElement).appendChild(style);
+    } catch (e) { /* never break serialisation */ }
+    return json;
   },
 
-  // Re-tint a subtree. We only look at elements that carry an inline colour.
-  _scan(root) {
+  _wrapToJSON() {
+    if (!Zotero.Annotations || typeof Zotero.Annotations.toJSON !== "function") {
+      ZoteroMarkupEnhancer.log("Annotations.toJSON not found; palette display unavailable");
+      return;
+    }
+    if (Zotero.Annotations.__zmueWrapped) return;
+    const self = this;
+    const orig = Zotero.Annotations.toJSON;
+    this._origToJSON = orig;
+
+    const wrapped = function (...args) {
+      const out = orig.apply(this, args);
+      if (out && typeof out.then === "function") {
+        return out.then((json) => self._mapColor(json));
+      }
+      return self._mapColor(out);
+    };
+    wrapped.__zmueOrig = orig;
+    Zotero.Annotations.toJSON = wrapped;
+    Zotero.Annotations.__zmueWrapped = true;
+  },
+
+  _unwrapToJSON() {
+    if (this._origToJSON) {
+      Zotero.Annotations.toJSON = this._origToJSON;
+      delete Zotero.Annotations.__zmueWrapped;
+      this._origToJSON = null;
+    }
+  },
+
+  // ---- reverse safety net: ensure the DB only ever stores standard colours ----
+
+  notify(event, type, ids) {
+    if (this._busy) return;
+    if (type !== "item" || (event !== "modify" && event !== "add")) return;
+    if (!this._active()) return;
+    this._coerce(ids.slice()).catch((e) =>
+      ZoteroMarkupEnhancer.log("color net: " + e)
+    );
+  },
+
+  // Build displayed -> standard, dropping any ambiguous (colliding) entries.
+  _inverseMap() {
     const map = ZoteroMarkupEnhancer.Palettes.activeMap();
-    try {
-      if (root.nodeType === 1) this._recolor(root, map);
-      const els = root.querySelectorAll
-        ? root.querySelectorAll("[style], [fill]")
-        : [];
-      for (const el of els) this._recolor(el, map);
-    } catch (e) { /* defensive */ }
+    const inv = {};
+    for (const std of Object.keys(map)) {
+      const disp = map[std];
+      if (disp in inv && inv[disp] !== std) inv[disp] = null; // ambiguous
+      else inv[disp] = std;
+    }
+    return inv;
   },
 
-  _recolor(el, map) {
-    if (!map) map = ZoteroMarkupEnhancer.Palettes.activeMap();
+  async _coerce(ids) {
     const U = ZoteroMarkupEnhancer.Utils;
+    const inv = this._inverseMap();
+    const standard = ZoteroMarkupEnhancer.Palettes.standardSet();
 
-    // Detect-and-remember the original standard colour the first time.
-    if (!el.dataset || el.dataset.zmueOrig === undefined) {
-      const candidates = [];
-      if (el.style && el.style.backgroundColor) candidates.push(["bg", el.style.backgroundColor]);
-      if (el.style && el.style.fill) candidates.push(["fill", el.style.fill]);
-      const fillAttr = el.getAttribute && el.getAttribute("fill");
-      if (fillAttr) candidates.push(["fillAttr", fillAttr]);
+    this._busy = true;
+    try {
+      for (const id of ids) {
+        let item;
+        try { item = Zotero.Items.get(id); } catch (e) { continue; }
+        if (!item || !item.isAnnotation || !item.isAnnotation()) continue;
 
-      let matched = false;
-      for (const [kind, val] of candidates) {
-        const hex = U.toHex6(val);
-        if (hex && map[hex]) {
-          el.dataset.zmueOrig = hex;
-          el.dataset.zmueKind = kind;
-          const a = U.alphaOf(val);
-          if (a != null) el.dataset.zmueAlpha = String(a);
-          matched = true;
-          break;
+        const hex = U.toHex6(item.annotationColor);
+        if (!hex || standard.has(hex)) continue;   // already standard: never touch
+
+        const std = inv[hex];
+        if (std && std !== hex) {
+          item.annotationColor = std;
+          await item.saveTx();
         }
       }
-      if (!matched) {
-        if (el.dataset) el.dataset.zmueOrig = ""; // remember "not a target"
-        return;
-      }
-    }
-
-    const orig = el.dataset.zmueOrig;
-    if (!orig) return; // marked as non-target
-
-    const target = map[orig] || orig;
-    const alpha = el.dataset.zmueAlpha ? Number(el.dataset.zmueAlpha) : null;
-    const value = alpha != null ? U.hexToRgba(target, alpha) : target;
-
-    const kind = el.dataset.zmueKind;
-    if (kind === "fill") {
-      el.style.fill = value;
-    } else if (kind === "fillAttr") {
-      el.setAttribute("fill", value);
-    } else {
-      el.style.backgroundColor = value;
-      if (U.get("roundedCorners")) {
-        el.style.borderRadius = (Number(U.get("cornerRadius")) || 4) + "px";
-      }
+    } finally {
+      this._busy = false;
     }
   },
 
-  // Re-apply palette + rounding to every attached reader (called on pref change).
-  reapplyAll() {
-    const map = ZoteroMarkupEnhancer.Palettes.activeMap();
-    for (const doc of this._docs) {
-      if (!doc.defaultView) {
-        this._docs.delete(doc);
-        continue;
+  // Force open readers to re-pull annotation data (colours) after a palette change.
+  refreshReaders() {
+    try {
+      for (const reader of Zotero.Reader._readers || []) {
+        if (reader && typeof reader.reload === "function") reader.reload();
       }
-      // Refresh the rounded-corner stylesheet.
-      const style = doc.getElementById("zmue-reader-style");
-      if (style) style.remove();
-      delete doc.__zmueAttached; // allow re-inject
-      doc.__zmueAttached = true;
-      this._injectStyle(doc);
+    } catch (e) {
+      // If reload is unavailable, the new palette applies next time the reader opens.
+    }
+  },
 
-      // Re-map every element we previously tagged.
+  // ---- rounded corners for DOM-based reader views (EPUB / snapshots) ----
+
+  _installRoundingCss() {
+    const self = this;
+    this._cssHandler = (event) => {
       try {
-        const els = doc.querySelectorAll('[data-zmue-orig]:not([data-zmue-orig=""])');
-        for (const el of els) this._recolor(el, map);
+        if (event && event.doc) self._injectRoundingCss(event.doc);
+      } catch (e) { /* ignore */ }
+    };
+    for (const t of this._cssEventTypes) {
+      try {
+        Zotero.Reader.registerEventListener(t, this._cssHandler, ZoteroMarkupEnhancer.id);
       } catch (e) { /* ignore */ }
     }
+  },
+
+  _injectRoundingCss(doc) {
+    const U = ZoteroMarkupEnhancer.Utils;
+    if (!U.get("roundedCorners")) return;
+    const radius = (Number(U.get("cornerRadius")) || 4) + "px";
+
+    const apply = (d) => {
+      if (!d || !d.documentElement || d.getElementById("zmue-round-style")) return;
+      const css =
+        ".highlight,.annotation-highlight,[data-annotation-type=\"highlight\"]" +
+        "{border-radius:" + radius + " !important;}";
+      const style = d.createElementNS("http://www.w3.org/1999/xhtml", "style");
+      style.id = "zmue-round-style";
+      style.textContent = css;
+      (d.head || d.documentElement).appendChild(style);
+    };
+
+    apply(doc);
+    // EPUB/snapshot content lives in nested iframes.
+    try {
+      for (const frame of doc.querySelectorAll("iframe")) {
+        const cd = frame.contentDocument;
+        if (cd) apply(cd);
+        frame.addEventListener("load", () => { try { apply(frame.contentDocument); } catch (e) {} });
+      }
+    } catch (e) { /* ignore */ }
   }
 };
