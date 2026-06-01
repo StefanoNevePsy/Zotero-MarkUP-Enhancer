@@ -22,8 +22,11 @@
     </hbox>
     <description class="zmue-desc" data-l10n-id="markup-enhancer-prefs-palette-desc"/>
 
-    <checkbox preference="extensions.zotero.markup-enhancer.roundedCorners"
-              data-l10n-id="markup-enhancer-prefs-rounded" native="true"/>
+    <hbox align="center">
+      <html:input type="checkbox" id="zmue-rounded"
+                  preference="extensions.zotero.markup-enhancer.roundedCorners"/>
+      <label control="zmue-rounded" data-l10n-id="markup-enhancer-prefs-rounded"/>
+    </hbox>
     <description class="zmue-desc" data-l10n-id="markup-enhancer-prefs-rounded-desc"/>
 
     <hbox align="center">
@@ -72,10 +75,16 @@
 
   <groupbox>
     <label><html:h2 data-l10n-id="markup-enhancer-prefs-merge"/></label>
-    <checkbox preference="extensions.zotero.markup-enhancer.mergeOverlapping"
-              data-l10n-id="markup-enhancer-prefs-merge-on" native="true"/>
-    <checkbox preference="extensions.zotero.markup-enhancer.mergeSameColorOnly"
-              data-l10n-id="markup-enhancer-prefs-merge-samecolor" native="true"/>
+    <hbox align="center">
+      <html:input type="checkbox" id="zmue-merge-on"
+                  preference="extensions.zotero.markup-enhancer.mergeOverlapping"/>
+      <label control="zmue-merge-on" data-l10n-id="markup-enhancer-prefs-merge-on"/>
+    </hbox>
+    <hbox align="center">
+      <html:input type="checkbox" id="zmue-merge-samecolor"
+                  preference="extensions.zotero.markup-enhancer.mergeSameColorOnly"/>
+      <label control="zmue-merge-samecolor" data-l10n-id="markup-enhancer-prefs-merge-samecolor"/>
+    </hbox>
   </groupbox>
 
   <groupbox>
