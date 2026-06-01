@@ -74,8 +74,9 @@ ZoteroMarkupEnhancer.OverlapMerger = {
     for (const sib of sibs) {
       if (!sib || sib.id === item.id) continue;
       if (sib.annotationType !== "highlight") continue;
-      if (sameColorOnly && this._color(sib) !== this._color(item)) {
-        L("sib " + sib.id + " different colour (" + sib.annotationColor + ")");
+      if (sameColorOnly && this._baseColor(sib) !== this._baseColor(item)) {
+        L("sib " + sib.id + " different base colour (" +
+          this._baseColor(sib) + " vs " + this._baseColor(item) + ")");
         continue;
       }
 
@@ -105,6 +106,27 @@ ZoteroMarkupEnhancer.OverlapMerger = {
   _color(annotation) {
     const c = ZoteroMarkupEnhancer.Utils.toHex6(annotation.annotationColor);
     return c || annotation.annotationColor;
+  },
+
+  // The "base" (standard) colour of an annotation, regardless of any palette
+  // display value that may momentarily be stored on it. This makes the
+  // same-colour check immune to observer ordering: if the reader briefly saved
+  // a palette (displayed) colour before the safety net normalised it, we still
+  // compare the underlying standard colours.
+  _baseColor(annotation) {
+    const U = ZoteroMarkupEnhancer.Utils;
+    const hex = U.toHex6(annotation.annotationColor);
+    if (!hex) return annotation.annotationColor;
+
+    const P = ZoteroMarkupEnhancer.Palettes;
+    if (P.standardSet().has(hex)) return hex; // already standard
+
+    // Map a palette display colour back to its standard slot.
+    const map = P.activeMap(); // standard -> displayed
+    for (const std of Object.keys(map)) {
+      if (map[std] === hex) return std;
+    }
+    return hex; // unknown colour: leave as-is
   },
 
   _rectsOverlap(a, b) {
@@ -209,6 +231,13 @@ ZoteroMarkupEnhancer.OverlapMerger = {
       const merged = this._mergeRects(keepPos.rects.concat(dropPos.rects));
       keepPos.rects = merged;
       keep.annotationPosition = JSON.stringify(keepPos);
+
+      // Make sure the merged annotation is stored with a standard colour, even
+      // if a palette (displayed) colour had momentarily leaked onto it.
+      const base = this._baseColor(keep);
+      if (base && base !== this._color(keep)) {
+        keep.annotationColor = base;
+      }
 
       // Text / comment in reading order.
       const t1 = keepFirst ? keep.annotationText : drop.annotationText;
