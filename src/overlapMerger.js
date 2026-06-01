@@ -30,8 +30,13 @@ ZoteroMarkupEnhancer.OverlapMerger = {
 
   notify(event, type, ids) {
     if (event !== "add" || type !== "item") return;
+    const on = ZoteroMarkupEnhancer.Utils.get("mergeOverlapping");
+    ZoteroMarkupEnhancer.log(
+      "merge: notify add ids=" + ids.join(",") +
+      " mergeOverlapping=" + on + " processing=" + this._processing
+    );
     if (this._processing) return;
-    if (!ZoteroMarkupEnhancer.Utils.get("mergeOverlapping")) return;
+    if (!on) return;
     this._handleAdds(ids.slice()).catch((e) =>
       ZoteroMarkupEnhancer.log("overlap merge: " + (e && e.stack ? e.stack : e))
     );
