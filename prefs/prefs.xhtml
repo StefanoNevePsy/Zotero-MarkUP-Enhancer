@@ -101,8 +101,16 @@
     </hbox>
     <hbox align="center">
       <label data-l10n-id="markup-enhancer-prefs-shortcut" flex="1"/>
-      <html:input type="text" style="width:9em" id="zmue-shortcut-input"
-                  preference="extensions.zotero.markup-enhancer.tagShortcut"/>
+      <menulist preference="extensions.zotero.markup-enhancer.tagShortcut" native="true">
+        <menupopup>
+          <menuitem value="alt+t" label="Alt + T  (Option + T)"/>
+          <menuitem value="cmd+t" label="Cmd + T"/>
+          <menuitem value="ctrl+t" label="Ctrl + T"/>
+          <menuitem value="cmd+shift+t" label="Cmd + Shift + T"/>
+          <menuitem value="ctrl+shift+t" label="Ctrl + Shift + T"/>
+          <menuitem value="alt+shift+t" label="Alt + Shift + T"/>
+        </menupopup>
+      </menulist>
     </hbox>
     <description class="zmue-desc" data-l10n-id="markup-enhancer-prefs-shortcut-desc"/>
   </groupbox>

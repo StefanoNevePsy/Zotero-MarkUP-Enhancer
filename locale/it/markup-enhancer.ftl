@@ -16,4 +16,4 @@ markup-enhancer-prefs-tags = Griglia tag
 markup-enhancer-prefs-recentcount = Numero di tag recenti mostrati per primi
 markup-enhancer-prefs-shortcut-on = Scorciatoia da tastiera per taggare l'annotazione selezionata
 markup-enhancer-prefs-shortcut = Scorciatoia
-markup-enhancer-prefs-shortcut-desc = Nel reader, seleziona un'annotazione e premi questa scorciatoia per aprire la griglia dei tag accanto ad essa; premi Esc per chiudere. Formato: modificatori + tasto, es. "alt+t" oppure "ctrl+shift+t".
+markup-enhancer-prefs-shortcut-desc = Nel reader, seleziona un'annotazione e premi questa scorciatoia per aprire la griglia dei tag accanto ad essa; premi Esc per chiudere.
