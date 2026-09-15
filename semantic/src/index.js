@@ -8,6 +8,8 @@ var ZoteroSemantic = {
   initialized: false,
   _logs: [],
   _menuIDs: ["zsem-menu-tag", "zsem-menu-graph", "zsem-menu-test", "zsem-menu-key"],
+  _menuRegID: null,      // set when the native MenuManager is used
+  _usingMenuManager: false,
 
   Utils: null,
   Providers: null,
@@ -26,12 +28,80 @@ var ZoteroSemantic = {
     try { Zotero.Semantic = this; } catch (e) { /* ignore */ }
 
     this._safe("Prefs", () => this._registerPrefs());
+    this._safe("Menus", () => this._registerMenus());
     this.initialized = true;
   },
 
   shutdown() {
+    if (this._menuRegID) {
+      try { Zotero.MenuManager.unregisterMenu(this._menuRegID); } catch (e) { /* ignore */ }
+      this._menuRegID = null;
+    }
     this.initialized = false;
     try { delete Zotero.Semantic; } catch (e) { /* ignore */ }
+  },
+
+  // From Zotero 10 on, menus must go through the native Zotero.MenuManager;
+  // injecting into the zotero-itemmenu popup by hand no longer has any effect.
+  // Older builds (Zotero 7) have no MenuManager, so the DOM path stays as a
+  // fallback in addToWindow().
+  _registerMenus() {
+    const MM = Zotero.MenuManager;
+    if (!MM || typeof MM.registerMenu !== "function") {
+      this.log("MenuManager unavailable; falling back to DOM menu injection");
+      return;
+    }
+
+    const run = (fn) => (event, context) => {
+      const win = Zotero.getMainWindow();
+      const items = (context && context.items) || null;
+      try { fn(win, items); }
+      catch (e) { this.log("menu command: " + (e && e.stack ? e.stack : e)); }
+    };
+
+    const id = MM.registerMenu({
+      menuID: "zotero-semantic",
+      pluginID: this.id,
+      target: "main/library/item",
+      menus: [
+        {
+          menuType: "submenu",
+          l10nID: "zsem-menu-root",
+          menus: [
+            {
+              menuType: "menuitem",
+              l10nID: "zsem-menu-tag",
+              onCommand: run((win, items) => {
+                this.Tagger.runOnSelection(win, items).catch((e) =>
+                  this.log("tagger: " + (e && e.stack ? e.stack : e)));
+              })
+            },
+            {
+              menuType: "menuitem",
+              l10nID: "zsem-menu-graph",
+              onCommand: run((win, items) => {
+                this.Graph.open(win, items).catch((e) =>
+                  this.log("graph: " + (e && e.stack ? e.stack : e)));
+              })
+            },
+            {
+              menuType: "menuitem",
+              l10nID: "zsem-menu-test",
+              onCommand: run((win) => this.verifyProvider(win))
+            },
+            {
+              menuType: "menuitem",
+              l10nID: "zsem-menu-key",
+              onCommand: run((win) => this.promptForKey(win))
+            }
+          ]
+        }
+      ]
+    });
+
+    this._menuRegID = id;
+    this._usingMenuManager = true;
+    this.log("menus registered via MenuManager (id=" + id + ")");
   },
 
   // PreferencePanes.register() is async, so a failure arrives as a rejected
@@ -64,6 +134,7 @@ var ZoteroSemantic = {
   // ---- per-window UI: entries in the item list context menu ----
 
   addToWindow(window) {
+    if (this._usingMenuManager) return; // native menus already registered
     try {
       const doc = window.document;
       const menu = doc.getElementById("zotero-itemmenu");
