@@ -2,13 +2,14 @@
 // Collects the items to visualise, scores them, and opens the graph window.
 
 ZoteroSemantic.Graph = {
-  async open(window) {
+  async open(window, preselected) {
     const U = ZoteroSemantic.Utils;
     const pane = window.ZoteroPane;
 
-    let items = (pane.getSelectedItems() || []).filter(
-      (i) => i.isRegularItem && i.isRegularItem()
-    );
+    const source = preselected && preselected.length
+      ? preselected
+      : (pane.getSelectedItems() || []);
+    let items = source.filter((i) => i.isRegularItem && i.isRegularItem());
 
     // With 0 or 1 items selected, fall back to the whole current collection:
     // a graph of one node is not useful.

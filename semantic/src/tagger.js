@@ -5,12 +5,14 @@
 // no AI at all.
 
 ZoteroSemantic.Tagger = {
-  async runOnSelection(window) {
+  // `preselected` is what the native menu hands us; fall back to the pane's
+  // selection when invoked from the legacy DOM menu.
+  async runOnSelection(window, preselected) {
     const U = ZoteroSemantic.Utils;
-    const pane = window.ZoteroPane;
-    const items = (pane.getSelectedItems() || []).filter(
-      (i) => i.isRegularItem && i.isRegularItem()
-    );
+    const source = preselected && preselected.length
+      ? preselected
+      : (window.ZoteroPane.getSelectedItems() || []);
+    const items = source.filter((i) => i.isRegularItem && i.isRegularItem());
 
     if (!items.length) {
       Zotero.alert(window, "Zotero Semantic", "Seleziona almeno un elemento.");
