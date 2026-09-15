@@ -1,6 +1,6 @@
 # Markup Enhancer for Zotero
 
-A Zotero plugin (Zotero 7 / 8 / 9) that improves highlighting and tagging:
+A Zotero plugin (Zotero 7-10) that improves highlighting and tagging:
 
 1. **Custom highlighter palettes** — *pastel*, *neon*, *earthy*, *default*, or a
    fully **custom** palette. The palette only changes how highlights *look* in
@@ -71,11 +71,12 @@ Zotero can load an unpacked plugin via a proxy file:
 - Custom palette editor (one colour per standard Zotero colour)
 - Merge overlapping highlights (+ "same colour only")
 - Number of recent tags shown first in the tag grid
+- Keyboard shortcut for the annotation tag grid (dropdown; default Alt+T)
 
 ## Project layout
 
 ```
-manifest.json            Plugin manifest (Zotero 7–9)
+manifest.json            Plugin manifest (Zotero 7–10)
 bootstrap.js             Lifecycle entry point; loads src/*.js
 src/index.js             Namespace + orchestration + prefs registration
 src/utils.js             Prefs access and colour helpers
@@ -84,7 +85,7 @@ src/tagColors.js         Stable per-tag colour assignment + recent tracking
 src/readerStyler.js      Reader re-tinting + rounded corners (visual only)
 src/tagGrid.js           Item-pane "Tag Grid" section
 src/overlapMerger.js     Merge overlapping highlight annotations
-prefs/prefs.xhtml,.js    Preferences pane
+prefs/prefs.xhtml        Preferences pane (declarative; no pane script needed)
 locale/*/markup-enhancer.ftl   Localisation (en-US, it)
 icons/                   Plugin and section icons
 ```
