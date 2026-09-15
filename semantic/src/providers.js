@@ -33,6 +33,29 @@ ZoteroSemantic.Providers = {
     return typeof this.current().embed === "function";
   },
 
+  // Models may answer with a bare array, or -- when a structured-output schema
+  // is used -- with an object wrapping one. Accept both.
+  normalizeTags(parsed) {
+    if (Array.isArray(parsed)) return parsed.map(String);
+    if (parsed && typeof parsed === "object") {
+      for (const v of Object.values(parsed)) {
+        if (Array.isArray(v)) return v.map(String);
+      }
+    }
+    return [];
+  },
+
+  // Small end-to-end check used by the "verify provider" menu entry.
+  async selfTest() {
+    const profile =
+      "Titolo: La famiglia come sistema\n" +
+      "Autori: Rossi, Maria\nAnno: 2019\n" +
+      "Abstract: Uno studio sull'omeostasi familiare e sul ruolo del sintomo " +
+      "nella terapia sistemica breve.";
+    const tags = await this.suggestTags(profile, ["terapia sistemica", "omeostasi"]);
+    return tags;
+  },
+
   // Shared prompt so both engines are asked for exactly the same thing.
   buildTagPrompt(profile, vocabulary) {
     const U = ZoteroSemantic.Utils;
@@ -75,9 +98,15 @@ ZoteroSemantic.Providers = {
       const url = this._base + encodeURIComponent(model) +
         ":generateContent?key=" + encodeURIComponent(this._key());
 
+      // responseSchema makes the array of strings a guarantee rather than a
+      // request the model may phrase differently.
       const body = {
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2, responseMimeType: "application/json" }
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: "application/json",
+          responseSchema: { type: "ARRAY", items: { type: "STRING" } }
+        }
       };
 
       const res = await Zotero.HTTP.request("POST", url, {
@@ -90,8 +119,7 @@ ZoteroSemantic.Providers = {
       const text = data && data.candidates && data.candidates[0] &&
         data.candidates[0].content && data.candidates[0].content.parts &&
         data.candidates[0].content.parts.map((p) => p.text || "").join("");
-      const parsed = U.parseJSONLoose(text);
-      return Array.isArray(parsed) ? parsed : [];
+      return ZoteroSemantic.Providers.normalizeTags(U.parseJSONLoose(text));
     },
 
     async embed(text) {
@@ -118,31 +146,64 @@ ZoteroSemantic.Providers = {
   // not embeddings, so Similarity falls back to lexical scoring for this engine.
 
   Apple: {
+    // macOS 27's fm can guarantee the shape of its answer:
+    //   fm schema object --name Tags --string tags --array > schema.json
+    //   fm respond "<prompt>" --schema schema.json      -> {"tags": [...]}
+    // If the installed CLI does not understand --schema (macOS 26 third-party
+    // builds), we transparently retry with a plain prompt and parse loosely.
     async suggestTags(profile, vocabulary) {
       const U = ZoteroSemantic.Utils;
-      const prompt = ZoteroSemantic.Providers.buildTagPrompt(profile, vocabulary);
-      const out = await this.run(prompt);
-      const parsed = U.parseJSONLoose(out);
-      return Array.isArray(parsed) ? parsed : [];
+      const P = ZoteroSemantic.Providers;
+      const prompt = P.buildTagPrompt(profile, vocabulary);
+
+      let out = "";
+      let firstError = null;
+      try {
+        out = await this.run(prompt, U.get("appleTemplate"));
+        const tags = P.normalizeTags(U.parseJSONLoose(out));
+        if (tags.length) return tags;
+        ZoteroSemantic.log("apple: structured run gave no tags, retrying plain");
+      } catch (e) {
+        firstError = e;
+        ZoteroSemantic.log("apple: structured run failed (" + e.message + "), retrying plain");
+      }
+
+      try {
+        out = await this.run(prompt, U.get("appleTemplatePlain"));
+        return P.normalizeTags(U.parseJSONLoose(out));
+      } catch (e) {
+        throw firstError || e;
+      }
     },
 
-    // Runs the configured CLI and returns its stdout, via a temp file.
-    async run(prompt) {
+    // Substitutes every placeholder occurrence. Note the default template names
+    // {cli} twice, so this must replace all of them, not just the first.
+    buildCommand(template, cli, paths) {
+      return String(template)
+        .split("{cli}").join(cli)
+        .split("{prompt}").join(paths.prompt)
+        .split("{schema}").join(paths.schema)
+        .split("{out}").join(paths.out);
+    },
+
+    // Runs a command template and returns what it wrote to the output file.
+    // Zotero can start processes but cannot read their stdout, hence the file.
+    async run(prompt, template) {
       const U = ZoteroSemantic.Utils;
       const cli = U.get("appleCli") || "/usr/bin/fm";
-      const template = U.get("appleTemplate") || "{cli} respond \"$(cat '{prompt}')\" > '{out}' 2>&1";
+      if (!template) template = U.DEFAULTS.appleTemplate;
 
       const tmp = Zotero.getTempDirectory().path;
       const stamp = Date.now() + "-" + Math.floor(Math.random() * 1e6);
       const promptPath = PathUtils.join(tmp, "zsem-prompt-" + stamp + ".txt");
       const outPath = PathUtils.join(tmp, "zsem-out-" + stamp + ".txt");
+      const schemaPath = PathUtils.join(tmp, "zsem-schema-" + stamp + ".json");
 
       await IOUtils.writeUTF8(promptPath, prompt);
 
-      const cmd = template
-        .replace("{cli}", cli)
-        .replace("{prompt}", promptPath)
-        .replace("{out}", outPath);
+      const cmd = this.buildCommand(template, cli, {
+        prompt: promptPath, schema: schemaPath, out: outPath
+      });
 
       ZoteroSemantic.log("apple cmd: " + cmd);
 
@@ -152,13 +213,13 @@ ZoteroSemantic.Providers = {
         try { text = await IOUtils.readUTF8(outPath); } catch (e) { /* no output */ }
         if (!text.trim()) {
           throw new Error(
-            "Il comando non ha prodotto output. Verifica che '" + cli +
-            "' esista e che i parametri nel modello di comando siano corretti."
+            "Nessun output da '" + cli + "'. Verifica che il file esista " +
+            "(su macOS 26 /usr/bin/fm non c'e') e che il modello di comando sia corretto."
           );
         }
         return text;
       } finally {
-        for (const p of [promptPath, outPath]) {
+        for (const p of [promptPath, outPath, schemaPath]) {
           try { await IOUtils.remove(p, { ignoreAbsent: true }); } catch (e) { /* ignore */ }
         }
       }
