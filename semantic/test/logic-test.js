@@ -2,8 +2,8 @@ const fs=require('fs'),vm=require('vm');
 const prefs={};
 const ctx={ZoteroSemantic:{log:()=>{}},Zotero:{Prefs:{get:k=>prefs[k],set:(k,v)=>prefs[k]=v}},console};
 vm.createContext(ctx);
-for (const f of ['src/utils.js','src/similarity.js'].map(p=>__dirname+'/../'+p)) vm.runInContext(fs.readFileSync(f,'utf8'),ctx);
-const U=ctx.ZoteroSemantic.Utils, S=ctx.ZoteroSemantic.Similarity;
+for (const f of ['src/utils.js','src/similarity.js','src/providers.js'].map(p=>__dirname+'/../'+p)) vm.runInContext(fs.readFileSync(f,'utf8'),ctx);
+const U=ctx.ZoteroSemantic.Utils, S=ctx.ZoteroSemantic.Similarity, P=ctx.ZoteroSemantic.Providers;
 U.ensureDefaultPrefs();
 let pass=0,fail=0;
 const chk=(n,c)=>{ c?(pass++,console.log('  ok  '+n)):(fail++,console.log('  FAIL '+n)); };
@@ -42,6 +42,24 @@ chk('0.95 -> 1', S.rescale(0.95)===1);
 chk('monotono crescente', S.rescale(0.7)<S.rescale(0.85));
 chk('coseno identico = 1', U.cosine([1,2,3],[1,2,3])>0.999);
 chk('coseno ortogonale = 0', Math.abs(U.cosine([1,0],[0,1]))<1e-9);
+
+console.log('-- normalizzazione risposta tag (array o oggetto da --schema) --');
+chk('array semplice', JSON.stringify(P.normalizeTags(['a','b']))==='["a","b"]');
+chk('oggetto {tags:[...]} di fm --schema', JSON.stringify(P.normalizeTags({tags:['a','b']}))==='["a","b"]');
+chk('oggetto con altro nome di campo', JSON.stringify(P.normalizeTags({items:['x']}))==='["x"]');
+chk('null -> vuoto', JSON.stringify(P.normalizeTags(null))==='[]');
+chk('oggetto senza array -> vuoto', JSON.stringify(P.normalizeTags({a:1}))==='[]');
+
+console.log('-- costruzione comando fm (due occorrenze di {cli}) --');
+const tpl=U.DEFAULTS.appleTemplate;
+const cmd=P.Apple.buildCommand(tpl,'/usr/bin/fm',{prompt:'/tmp/p.txt',schema:'/tmp/s.json',out:'/tmp/o.txt'});
+chk('nessun segnaposto residuo', !/\{(cli|prompt|schema|out)\}/.test(cmd));
+chk('entrambe le occorrenze di {cli} sostituite', (cmd.match(/\/usr\/bin\/fm/g)||[]).length===2);
+chk('genera lo schema prima di rispondere', cmd.indexOf('schema object')<cmd.indexOf('respond'));
+chk('passa --schema a respond', cmd.includes("--schema '/tmp/s.json'"));
+chk('redirige su file di output', cmd.includes("> '/tmp/o.txt'"));
+const plain=P.Apple.buildCommand(U.DEFAULTS.appleTemplatePlain,'/opt/fmx',{prompt:'/tmp/p',schema:'/tmp/s',out:'/tmp/o'});
+chk('fallback senza --schema', !plain.includes('--schema'));
 
 console.log('\n'+pass+' passati, '+fail+' falliti');
 process.exit(fail?1:0);

@@ -10,9 +10,18 @@ ZoteroSemantic.Utils = {
     "geminiModel": "gemini-2.5-flash",
     "geminiEmbedModel": "text-embedding-004",
     // Apple on-device CLI. macOS 27 ships /usr/bin/fm; on macOS 26 point this at
-    // a third-party CLI (e.g. fmx). {prompt} and {out} are substituted.
+    // a third-party CLI (e.g. fmx). {cli}, {prompt}, {schema} and {out} are
+    // substituted with real paths.
+    //
+    // The default asks fm for guaranteed structured output: build a schema for
+    // an array of strings, then constrain the answer to it, so the reply is
+    // always {"tags": [...]} instead of free prose. If the CLI does not support
+    // --schema, the plain template below is used automatically as a fallback.
     "appleCli": "/usr/bin/fm",
-    "appleTemplate": "{cli} respond \"$(cat '{prompt}')\" > '{out}' 2>&1",
+    "appleTemplate":
+      "{cli} schema object --name Tags --string tags --array > '{schema}' && " +
+      "{cli} respond \"$(cat '{prompt}')\" --schema '{schema}' > '{out}' 2>&1",
+    "appleTemplatePlain": "{cli} respond \"$(cat '{prompt}')\" > '{out}' 2>&1",
     "maxTags": 8,
     "reuseVocabulary": true,           // prefer tags already in the library
     "profileMaxChars": 8000,

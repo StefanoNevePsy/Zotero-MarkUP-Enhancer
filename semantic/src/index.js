@@ -7,7 +7,7 @@ var ZoteroSemantic = {
   rootURI: null,
   initialized: false,
   _logs: [],
-  _menuIDs: ["zsem-menu-tag", "zsem-menu-graph"],
+  _menuIDs: ["zsem-menu-tag", "zsem-menu-graph", "zsem-menu-test"],
 
   Utils: null,
   Providers: null,
@@ -67,15 +67,18 @@ var ZoteroSemantic = {
         return el;
       };
 
-      mkItem("zsem-menu-tag", "Suggerisci tag con AI…", () => {
+      mkItem("zsem-menu-tag", "Suggerisci tag con AI\u2026", () => {
         this.Tagger.runOnSelection(window).catch((e) =>
           this.log("tagger: " + (e && e.stack ? e.stack : e))
         );
       });
-      mkItem("zsem-menu-graph", "Mostra rete di relazioni…", () => {
+      mkItem("zsem-menu-graph", "Mostra rete di relazioni\u2026", () => {
         this.Graph.open(window).catch((e) =>
           this.log("graph: " + (e && e.stack ? e.stack : e))
         );
+      });
+      mkItem("zsem-menu-test", "Verifica provider AI\u2026", () => {
+        this.verifyProvider(window);
       });
     } catch (e) {
       this.log("addToWindow: " + e);
@@ -101,6 +104,34 @@ var ZoteroSemantic = {
   removeFromAllWindows() {
     for (const win of Zotero.getMainWindows()) {
       if (win.ZoteroPane) this.removeFromWindow(win);
+    }
+  },
+
+  // Runs one tiny request against the configured provider and reports exactly
+  // what happened, so setup problems surface here instead of halfway through a
+  // batch of documents.
+  async verifyProvider(window) {
+    const name = this.Providers.name();
+    const progress = new Zotero.ProgressWindow({ closeOnClick: false });
+    progress.changeHeadline("Zotero Semantic: verifica " + name + "\u2026");
+    progress.show();
+    try {
+      const tags = await this.Providers.selfTest();
+      progress.close();
+      if (tags && tags.length) {
+        Zotero.alert(window, "Zotero Semantic",
+          "Provider \"" + name + "\" funzionante.\n\n" +
+          "Tag di prova restituiti:\n" + tags.join(", "));
+      } else {
+        Zotero.alert(window, "Zotero Semantic",
+          "Il provider \"" + name + "\" ha risposto, ma non ha restituito tag " +
+          "utilizzabili.\n\nControlla il log:\nZotero.Semantic._logs.join(\"\\n\")");
+      }
+    } catch (e) {
+      progress.close();
+      this.log("verifyProvider: " + (e && e.stack ? e.stack : e));
+      Zotero.alert(window, "Zotero Semantic",
+        "Provider \"" + name + "\" non funzionante.\n\n" + (e.message || e));
     }
   },
 
