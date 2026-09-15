@@ -7,7 +7,7 @@ var ZoteroSemantic = {
   rootURI: null,
   initialized: false,
   _logs: [],
-  _menuIDs: ["zsem-menu-tag", "zsem-menu-graph", "zsem-menu-test"],
+  _menuIDs: ["zsem-menu-tag", "zsem-menu-graph", "zsem-menu-test", "zsem-menu-key"],
 
   Utils: null,
   Providers: null,
@@ -34,17 +34,30 @@ var ZoteroSemantic = {
     try { delete Zotero.Semantic; } catch (e) { /* ignore */ }
   },
 
+  // PreferencePanes.register() is async, so a failure arrives as a rejected
+  // promise rather than a thrown error. Log both outcomes, and retry once the
+  // UI is ready in case registering during startup was simply too early.
   _registerPrefs() {
-    Promise.resolve(
+    const attempt = () => Promise.resolve(
       Zotero.PreferencePanes.register({
         pluginID: this.id,
         src: "prefs/prefs.xhtml",
         label: "Zotero Semantic",
         image: this.rootURI + "icons/icon48.svg"
       })
-    ).then(
+    );
+
+    attempt().then(
       (paneID) => this.log("preference pane registered (id=" + paneID + ")"),
-      (e) => this.log("preference pane FAILED: " + (e && e.stack ? e.stack : e))
+      (e) => {
+        this.log("preference pane failed on first attempt: " + e);
+        Promise.resolve(Zotero.uiReadyPromise)
+          .then(attempt)
+          .then(
+            (paneID) => this.log("preference pane registered on retry (id=" + paneID + ")"),
+            (e2) => this.log("preference pane FAILED: " + (e2 && e2.stack ? e2.stack : e2))
+          );
+      }
     );
   },
 
@@ -80,6 +93,9 @@ var ZoteroSemantic = {
       mkItem("zsem-menu-test", "Verifica provider AI\u2026", () => {
         this.verifyProvider(window);
       });
+      mkItem("zsem-menu-key", "Imposta API key Gemini\u2026", () => {
+        this.promptForKey(window);
+      });
     } catch (e) {
       this.log("addToWindow: " + e);
     }
@@ -104,6 +120,37 @@ var ZoteroSemantic = {
   removeFromAllWindows() {
     for (const win of Zotero.getMainWindows()) {
       if (win.ZoteroPane) this.removeFromWindow(win);
+    }
+  },
+
+  // Lets the key be set without the preferences pane, which has proven
+  // unreliable to register on some Zotero builds. The plugin stays fully usable
+  // from the context menu alone.
+  promptForKey(window) {
+    try {
+      const U = this.Utils;
+      const current = U.get("geminiKey") || "";
+      const box = { value: current };
+      const ok = Services.prompt.prompt(
+        window,
+        "Zotero Semantic",
+        "API key Gemini (lascia vuoto per cancellarla):",
+        box,
+        null,
+        {}
+      );
+      if (!ok) return;
+      const key = (box.value || "").trim();
+      U.set("geminiKey", key);
+      U.set("provider", "gemini");
+      Zotero.alert(window, "Zotero Semantic",
+        key
+          ? "API key salvata. Provider impostato su Gemini.\n\n" +
+            "Prova ora \"Verifica provider AI\u2026\"."
+          : "API key rimossa.");
+    } catch (e) {
+      this.log("promptForKey: " + (e && e.stack ? e.stack : e));
+      Zotero.alert(window, "Zotero Semantic", "Errore: " + (e.message || e));
     }
   },
 
