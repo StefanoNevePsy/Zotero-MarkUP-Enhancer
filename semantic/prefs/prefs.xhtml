@@ -1,0 +1,86 @@
+<vbox xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+      xmlns:html="http://www.w3.org/1999/xhtml">
+
+  <linkset>
+    <html:link rel="localization" href="zotero-semantic.ftl"/>
+  </linkset>
+
+  <groupbox>
+    <label><html:h2 data-l10n-id="zsem-prefs-engine"/></label>
+    <hbox align="center">
+      <label data-l10n-id="zsem-prefs-provider" flex="1"/>
+      <menulist preference="extensions.zotero.semantic.provider" native="true">
+        <menupopup>
+          <menuitem value="gemini" label="Gemini (API, richiede key)"/>
+          <menuitem value="apple" label="Apple on-device (macOS)"/>
+        </menupopup>
+      </menulist>
+    </hbox>
+    <description class="zsem-desc" data-l10n-id="zsem-prefs-provider-desc"/>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2>Gemini</html:h2></label>
+    <hbox align="center">
+      <label data-l10n-id="zsem-prefs-key" flex="1"/>
+      <html:input type="password" style="width:20em"
+                  preference="extensions.zotero.semantic.geminiKey"/>
+    </hbox>
+    <description class="zsem-desc" data-l10n-id="zsem-prefs-key-desc"/>
+    <hbox align="center">
+      <label data-l10n-id="zsem-prefs-model" flex="1"/>
+      <html:input type="text" style="width:14em"
+                  preference="extensions.zotero.semantic.geminiModel"/>
+    </hbox>
+    <hbox align="center">
+      <label data-l10n-id="zsem-prefs-embedmodel" flex="1"/>
+      <html:input type="text" style="width:14em"
+                  preference="extensions.zotero.semantic.geminiEmbedModel"/>
+    </hbox>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2 data-l10n-id="zsem-prefs-apple"/></label>
+    <description class="zsem-desc" data-l10n-id="zsem-prefs-apple-desc"/>
+    <hbox align="center">
+      <label data-l10n-id="zsem-prefs-applecli" flex="1"/>
+      <html:input type="text" style="width:16em"
+                  preference="extensions.zotero.semantic.appleCli"/>
+    </hbox>
+    <hbox align="center">
+      <label data-l10n-id="zsem-prefs-appletpl" flex="1"/>
+      <html:input type="text" style="width:26em"
+                  preference="extensions.zotero.semantic.appleTemplate"/>
+    </hbox>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2 data-l10n-id="zsem-prefs-tagging"/></label>
+    <hbox align="center">
+      <label data-l10n-id="zsem-prefs-maxtags" flex="1"/>
+      <html:input type="number" min="1" max="20" style="width:5em"
+                  preference="extensions.zotero.semantic.maxTags"/>
+    </hbox>
+    <hbox align="center">
+      <html:input type="checkbox" id="zsem-reuse"
+                  preference="extensions.zotero.semantic.reuseVocabulary"/>
+      <label control="zsem-reuse" data-l10n-id="zsem-prefs-reuse"/>
+    </hbox>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2 data-l10n-id="zsem-prefs-graph"/></label>
+    <hbox align="center">
+      <html:input type="checkbox" id="zsem-emb"
+                  preference="extensions.zotero.semantic.embeddings"/>
+      <label control="zsem-emb" data-l10n-id="zsem-prefs-embeddings"/>
+    </hbox>
+    <description class="zsem-desc" data-l10n-id="zsem-prefs-embeddings-desc"/>
+    <hbox align="center">
+      <label data-l10n-id="zsem-prefs-maxnodes" flex="1"/>
+      <html:input type="number" min="10" max="2000" style="width:6em"
+                  preference="extensions.zotero.semantic.graphMaxNodes"/>
+    </hbox>
+  </groupbox>
+
+</vbox>
