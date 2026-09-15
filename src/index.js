@@ -33,10 +33,11 @@ var ZoteroMarkupEnhancer = {
     this.rootURI = rootURI;
 
     this.Utils.ensureDefaultPrefs();
-    this._safe("Prefs", () => this._registerPrefs());
 
     // Expose the namespace so it is reachable from Run JavaScript / other code.
     try { Zotero.MarkupEnhancer = this; } catch (e) { /* ignore */ }
+
+    this._safe("Prefs", () => this._registerPrefs());
 
     // Feature modules. Each guards its own failures so one broken feature
     // can never take the whole plugin (or Zotero) down.
@@ -73,13 +74,33 @@ var ZoteroMarkupEnhancer = {
     }
   },
 
+  // Zotero.PreferencePanes.register() is ASYNC (it resolves to the pane ID), so
+  // a failure surfaces as a rejected promise, not a thrown error. Without an
+  // explicit .catch the pane would silently fail to appear -- which is exactly
+  // what happened on Zotero 10. Log both outcomes.
   _registerPrefs() {
-    Zotero.PreferencePanes.register({
-      pluginID: this.id,
-      src: "prefs/prefs.xhtml",
-      label: "Markup Enhancer",
-      image: this.rootURI + "icons/icon48.svg"
-    });
+    const attempt = () => Promise.resolve(
+      Zotero.PreferencePanes.register({
+        pluginID: this.id,
+        src: "prefs/prefs.xhtml",
+        label: "Markup Enhancer",
+        image: this.rootURI + "icons/icon48.svg"
+      })
+    );
+
+    attempt().then(
+      (paneID) => this.log("preference pane registered (id=" + paneID + ")"),
+      (e) => {
+        this.log("preference pane failed on first attempt: " + e);
+        // Could be a startup-timing problem: retry once the UI is ready.
+        Promise.resolve(Zotero.uiReadyPromise)
+          .then(attempt)
+          .then(
+            (paneID) => this.log("preference pane registered on retry (id=" + paneID + ")"),
+            (e2) => this.log("preference pane FAILED: " + (e2 && e2.stack ? e2.stack : e2))
+          );
+      }
+    );
   },
 
   log(msg) {
