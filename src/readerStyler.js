@@ -19,9 +19,8 @@
 //     touches a colour that is already standard -- so the stored data, and
 //     therefore sync, always stays "standard".
 //
-// Rounded corners: only achievable for DOM-based views (EPUB/snapshots), applied
-// via injected CSS. PDF highlights are sharp canvas rectangles and cannot be
-// rounded without patching the reader's internal drawing.
+// Rounded corners: DOM-based views (EPUB/snapshots) get injected CSS; PDFs get a
+// targeted canvas patch (see the "rounded highlights" section below).
 
 ZoteroMarkupEnhancer.ReaderStyler = {
   _origToJSON: null,
@@ -30,6 +29,7 @@ ZoteroMarkupEnhancer.ReaderStyler = {
   _prefSymbols: [],
   _cssHandler: null,
   _cssEventTypes: ["renderToolbar", "renderSidebarAnnotationHeader"],
+  _patchedProtos: [],
 
   init() {
     this._wrapToJSON();
@@ -41,7 +41,7 @@ ZoteroMarkupEnhancer.ReaderStyler = {
 
     // Re-render open readers when the palette changes.
     const U = ZoteroMarkupEnhancer.Utils;
-    const watch = ["palette"].concat(
+    const watch = ["palette", "roundedCorners", "cornerRadius"].concat(
       Object.keys(ZoteroMarkupEnhancer.Palettes.STANDARD).map((s) => "customColor." + s)
     );
     for (const name of watch) {
@@ -55,7 +55,8 @@ ZoteroMarkupEnhancer.ReaderStyler = {
       } catch (e) { /* ignore */ }
     }
 
-    // Rounded corners for DOM-based reader views (EPUB / snapshots).
+    // Rounded highlights: CSS for DOM views (EPUB/snapshots) + a targeted canvas
+    // patch for PDFs (see _patchCanvasIn).
     this._installRoundingCss();
   },
 
@@ -75,6 +76,7 @@ ZoteroMarkupEnhancer.ReaderStyler = {
       }
       this._cssHandler = null;
     }
+    this._unpatchCanvas();
   },
 
   _active() {
@@ -225,13 +227,22 @@ ZoteroMarkupEnhancer.ReaderStyler = {
     }
   },
 
-  // ---- rounded corners for DOM-based reader views (EPUB / snapshots) ----
+  // ---- rounded highlights -------------------------------------------------
+  //
+  // EPUB/snapshot views render highlights as DOM, so CSS border-radius works.
+  // PDFs draw them on a <canvas>: the reader sets globalCompositeOperation to
+  // 'multiply' and fills each line's rectangle with the annotation colour at 50%
+  // alpha (colour + '80') via ctx.fillRect. We patch fillRect in the reader's
+  // window and, ONLY for fills matching that exact signature (multiply blend +
+  // a known annotation colour), draw a rounded rectangle instead. Every other
+  // fill on the page -- text, images, page background -- is untouched, and any
+  // failure falls straight back to the original fillRect.
 
   _installRoundingCss() {
     const self = this;
     this._cssHandler = (event) => {
       try {
-        if (event && event.doc) self._injectRoundingCss(event.doc);
+        if (event && event.doc) self._applyRounding(event.doc);
       } catch (e) { /* ignore */ }
     };
     for (const t of this._cssEventTypes) {
@@ -239,32 +250,163 @@ ZoteroMarkupEnhancer.ReaderStyler = {
         Zotero.Reader.registerEventListener(t, this._cssHandler, ZoteroMarkupEnhancer.id);
       } catch (e) { /* ignore */ }
     }
+    // Cover readers that were already open when the plugin started.
+    try {
+      for (const reader of Zotero.Reader._readers || []) {
+        const doc = reader && reader._iframeWindow && reader._iframeWindow.document;
+        if (doc) this._applyRounding(doc);
+      }
+    } catch (e) { /* ignore */ }
   },
 
-  _injectRoundingCss(doc) {
-    const U = ZoteroMarkupEnhancer.Utils;
-    if (!U.get("roundedCorners")) return;
-    const radius = (Number(U.get("cornerRadius")) || 4) + "px";
-
+  _applyRounding(doc) {
     const apply = (d) => {
-      if (!d || !d.documentElement || d.getElementById("zmue-round-style")) return;
-      const css =
-        ".highlight,.annotation-highlight,[data-annotation-type=\"highlight\"]" +
-        "{border-radius:" + radius + " !important;}";
-      const style = d.createElementNS("http://www.w3.org/1999/xhtml", "style");
-      style.id = "zmue-round-style";
-      style.textContent = css;
-      (d.head || d.documentElement).appendChild(style);
+      if (!d || !d.documentElement) return;
+      this._injectRoundingCss(d);
+      this._patchCanvasIn(d.defaultView);
     };
 
     apply(doc);
-    // EPUB/snapshot content lives in nested iframes.
+
+    const hookFrame = (frame) => {
+      try {
+        if (frame.contentDocument) apply(frame.contentDocument);
+      } catch (e) { /* ignore */ }
+      frame.addEventListener("load", () => {
+        try { apply(frame.contentDocument); } catch (e) { /* ignore */ }
+      });
+    };
+
     try {
-      for (const frame of doc.querySelectorAll("iframe")) {
-        const cd = frame.contentDocument;
-        if (cd) apply(cd);
-        frame.addEventListener("load", () => { try { apply(frame.contentDocument); } catch (e) {} });
+      for (const frame of doc.querySelectorAll("iframe")) hookFrame(frame);
+    } catch (e) { /* ignore */ }
+
+    // The PDF/EPUB view iframe is often created after the toolbar renders.
+    try {
+      if (!doc.__zmueRoundObs && doc.defaultView) {
+        const obs = new doc.defaultView.MutationObserver((muts) => {
+          for (const m of muts) {
+            for (const n of m.addedNodes) {
+              if (n.nodeType !== 1) continue;
+              if (n.tagName === "IFRAME") hookFrame(n);
+              else if (n.querySelectorAll) {
+                for (const f of n.querySelectorAll("iframe")) hookFrame(f);
+              }
+            }
+          }
+        });
+        obs.observe(doc.documentElement, { childList: true, subtree: true });
+        doc.__zmueRoundObs = obs;
       }
     } catch (e) { /* ignore */ }
+  },
+
+  _injectRoundingCss(d) {
+    const U = ZoteroMarkupEnhancer.Utils;
+    if (!U.get("roundedCorners")) return;
+    if (d.getElementById("zmue-round-style")) return;
+    const radius = (Number(U.get("cornerRadius")) || 4) + "px";
+    const css =
+      ".highlight,.annotation-highlight,[data-annotation-type=\"highlight\"]" +
+      "{border-radius:" + radius + " !important;}";
+    const style = d.createElementNS("http://www.w3.org/1999/xhtml", "style");
+    style.id = "zmue-round-style";
+    style.textContent = css;
+    (d.head || d.documentElement).appendChild(style);
+  },
+
+  // Colours we are willing to round: Zotero's 8 standard colours plus whatever
+  // the active palette displays them as.
+  _roundableColors() {
+    const P = ZoteroMarkupEnhancer.Palettes;
+    const set = P.standardSet();
+    try {
+      const map = P.activeMap();
+      for (const std of Object.keys(map)) set.add(map[std]);
+    } catch (e) { /* ignore */ }
+    return set;
+  },
+
+  // Called for every fillRect the reader performs (thousands per page render),
+  // so the cheapest, most selective test goes first: only annotation fills use
+  // the 'multiply' blend mode, which rejects essentially all page drawing before
+  // any preference read or colour parsing happens.
+  _shouldRound(ctx, w, h) {
+    if (ctx.globalCompositeOperation !== "multiply") return false;
+    if (!(w > 1) || !(h > 1)) return false;
+    const U = ZoteroMarkupEnhancer.Utils;
+    if (!U.get("roundedCorners")) return false;
+    const hex = U.toHex6(ctx.fillStyle);
+    if (!hex) return false;
+    return this._roundableColors().has(hex);
+  },
+
+  // The pref is expressed in px at a ~16px line height, and scaled by the actual
+  // rectangle height so the rounding looks the same at any zoom level.
+  _radiusFor(w, h) {
+    const pref = Number(ZoteroMarkupEnhancer.Utils.get("cornerRadius"));
+    const px = Number.isFinite(pref) ? pref : 4;
+    return Math.max(0, Math.min(h * (px / 16), h / 2, w / 2));
+  },
+
+  _patchCanvasIn(win) {
+    try {
+      const proto = win && win.CanvasRenderingContext2D && win.CanvasRenderingContext2D.prototype;
+      if (!proto || proto.__zmueRoundPatched) return;
+      const orig = proto.fillRect;
+      if (typeof orig !== "function") return;
+
+      const self = this;
+      proto.__zmueRoundPatched = true;
+      proto.__zmueOrigFillRect = orig;
+      proto.fillRect = function (x, y, w, h) {
+        try {
+          if (self._shouldRound(this, w, h)) {
+            const r = self._radiusFor(w, h);
+            if (r > 0.5) {
+              this.beginPath();
+              if (typeof this.roundRect === "function") {
+                this.roundRect(x, y, w, h, r);
+              } else {
+                self._roundRectPath(this, x, y, w, h, r);
+              }
+              this.fill();
+              return;
+            }
+          }
+        } catch (e) {
+          // Never let our styling break page rendering.
+        }
+        return orig.call(this, x, y, w, h);
+      };
+      this._patchedProtos.push(proto);
+      ZoteroMarkupEnhancer.log("rounded-highlight canvas patch installed");
+    } catch (e) {
+      ZoteroMarkupEnhancer.log("canvas patch: " + e);
+    }
+  },
+
+  _roundRectPath(ctx, x, y, w, h, r) {
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  },
+
+  _unpatchCanvas() {
+    for (const proto of this._patchedProtos) {
+      try {
+        if (proto.__zmueOrigFillRect) proto.fillRect = proto.__zmueOrigFillRect;
+        delete proto.__zmueOrigFillRect;
+        delete proto.__zmueRoundPatched;
+      } catch (e) { /* ignore */ }
+    }
+    this._patchedProtos = [];
   }
 };
