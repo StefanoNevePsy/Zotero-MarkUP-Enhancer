@@ -19,8 +19,8 @@
 //     touches a colour that is already standard -- so the stored data, and
 //     therefore sync, always stays "standard".
 //
-// Rounded corners: DOM-based views (EPUB/snapshots) get injected CSS; PDFs get a
-// targeted canvas patch (see the "rounded highlights" section below).
+// Rounded corners: DOM-based views (EPUB/snapshots) only -- see the "rounded
+// highlights" section below for why PDFs are deliberately left alone.
 
 ZoteroMarkupEnhancer.ReaderStyler = {
   _origToJSON: null,
@@ -29,7 +29,6 @@ ZoteroMarkupEnhancer.ReaderStyler = {
   _prefSymbols: [],
   _cssHandler: null,
   _cssEventTypes: ["renderToolbar", "renderSidebarAnnotationHeader"],
-  _patchedProtos: [],
 
   init() {
     this._wrapToJSON();
@@ -55,8 +54,7 @@ ZoteroMarkupEnhancer.ReaderStyler = {
       } catch (e) { /* ignore */ }
     }
 
-    // Rounded highlights: CSS for DOM views (EPUB/snapshots) + a targeted canvas
-    // patch for PDFs (see _patchCanvasIn).
+    // Rounded highlights for DOM-based views (EPUB/snapshots) via CSS.
     this._installRoundingCss();
   },
 
@@ -76,7 +74,6 @@ ZoteroMarkupEnhancer.ReaderStyler = {
       }
       this._cssHandler = null;
     }
-    this._unpatchCanvas();
   },
 
   _active() {
@@ -230,13 +227,16 @@ ZoteroMarkupEnhancer.ReaderStyler = {
   // ---- rounded highlights -------------------------------------------------
   //
   // EPUB/snapshot views render highlights as DOM, so CSS border-radius works.
-  // PDFs draw them on a <canvas>: the reader sets globalCompositeOperation to
-  // 'multiply' and fills each line's rectangle with the annotation colour at 50%
-  // alpha (colour + '80') via ctx.fillRect. We patch fillRect in the reader's
-  // window and, ONLY for fills matching that exact signature (multiply blend +
-  // a known annotation colour), draw a rounded rectangle instead. Every other
-  // fill on the page -- text, images, page background -- is untouched, and any
-  // failure falls straight back to the original fillRect.
+  //
+  // PDFs do NOT get rounded highlights, deliberately. They are drawn with
+  // ctx.fillRect on a canvas, and 0.7.0 tried to round them by replacing
+  // CanvasRenderingContext2D.prototype.fillRect inside the reader window. That
+  // was reverted in 0.8.0: Zotero's PDF theme engine (based on Doq) recolours
+  // pages by intercepting the very same canvas drawing primitives, so two
+  // independent patches on one low-level API fought each other and every
+  // non-original theme rendered the page completely black -- while the rounding
+  // itself never even took effect. Rounding PDF highlights is not worth
+  // destabilising page rendering, so we only style what we can style safely.
 
   _installRoundingCss() {
     const self = this;
@@ -263,7 +263,6 @@ ZoteroMarkupEnhancer.ReaderStyler = {
     const apply = (d) => {
       if (!d || !d.documentElement) return;
       this._injectRoundingCss(d);
-      this._patchCanvasIn(d.defaultView);
     };
 
     apply(doc);
@@ -313,100 +312,5 @@ ZoteroMarkupEnhancer.ReaderStyler = {
     style.id = "zmue-round-style";
     style.textContent = css;
     (d.head || d.documentElement).appendChild(style);
-  },
-
-  // Colours we are willing to round: Zotero's 8 standard colours plus whatever
-  // the active palette displays them as.
-  _roundableColors() {
-    const P = ZoteroMarkupEnhancer.Palettes;
-    const set = P.standardSet();
-    try {
-      const map = P.activeMap();
-      for (const std of Object.keys(map)) set.add(map[std]);
-    } catch (e) { /* ignore */ }
-    return set;
-  },
-
-  // Called for every fillRect the reader performs (thousands per page render),
-  // so the cheapest, most selective test goes first: only annotation fills use
-  // the 'multiply' blend mode, which rejects essentially all page drawing before
-  // any preference read or colour parsing happens.
-  _shouldRound(ctx, w, h) {
-    if (ctx.globalCompositeOperation !== "multiply") return false;
-    if (!(w > 1) || !(h > 1)) return false;
-    const U = ZoteroMarkupEnhancer.Utils;
-    if (!U.get("roundedCorners")) return false;
-    const hex = U.toHex6(ctx.fillStyle);
-    if (!hex) return false;
-    return this._roundableColors().has(hex);
-  },
-
-  // The pref is expressed in px at a ~16px line height, and scaled by the actual
-  // rectangle height so the rounding looks the same at any zoom level.
-  _radiusFor(w, h) {
-    const pref = Number(ZoteroMarkupEnhancer.Utils.get("cornerRadius"));
-    const px = Number.isFinite(pref) ? pref : 4;
-    return Math.max(0, Math.min(h * (px / 16), h / 2, w / 2));
-  },
-
-  _patchCanvasIn(win) {
-    try {
-      const proto = win && win.CanvasRenderingContext2D && win.CanvasRenderingContext2D.prototype;
-      if (!proto || proto.__zmueRoundPatched) return;
-      const orig = proto.fillRect;
-      if (typeof orig !== "function") return;
-
-      const self = this;
-      proto.__zmueRoundPatched = true;
-      proto.__zmueOrigFillRect = orig;
-      proto.fillRect = function (x, y, w, h) {
-        try {
-          if (self._shouldRound(this, w, h)) {
-            const r = self._radiusFor(w, h);
-            if (r > 0.5) {
-              this.beginPath();
-              if (typeof this.roundRect === "function") {
-                this.roundRect(x, y, w, h, r);
-              } else {
-                self._roundRectPath(this, x, y, w, h, r);
-              }
-              this.fill();
-              return;
-            }
-          }
-        } catch (e) {
-          // Never let our styling break page rendering.
-        }
-        return orig.call(this, x, y, w, h);
-      };
-      this._patchedProtos.push(proto);
-      ZoteroMarkupEnhancer.log("rounded-highlight canvas patch installed");
-    } catch (e) {
-      ZoteroMarkupEnhancer.log("canvas patch: " + e);
-    }
-  },
-
-  _roundRectPath(ctx, x, y, w, h, r) {
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-  },
-
-  _unpatchCanvas() {
-    for (const proto of this._patchedProtos) {
-      try {
-        if (proto.__zmueOrigFillRect) proto.fillRect = proto.__zmueOrigFillRect;
-        delete proto.__zmueOrigFillRect;
-        delete proto.__zmueRoundPatched;
-      } catch (e) { /* ignore */ }
-    }
-    this._patchedProtos = [];
   }
 };

@@ -6,8 +6,8 @@ A Zotero plugin (Zotero 7-10) that improves highlighting and tagging:
    fully **custom** palette. The palette only changes how highlights *look* in
    the reader. The stored annotation colour is **never** modified, so your notes
    keep their normal mapping and sync exactly as before.
-2. **Rounded highlight corners** — with a configurable radius, on PDFs as well as
-   EPUB/snapshots.
+2. **Rounded highlight corners** — with a configurable radius (EPUB / web
+   snapshots; see the limitation note about PDFs).
 3. **Fast colored tag grid** — a "Tag Grid" section in the item pane shows a
    scrollable grid of every existing tag as a coloured chip. Click to add/remove.
    The most **recently-used** tags appear first; the rest are alphabetical.
@@ -99,14 +99,15 @@ icons/                   Plugin and section icons
   still protects your data either way). Highlights created during a session are
   re-pushed to the reader so they pick up the palette colour too, and changing
   the palette re-colours open readers live (no reload).
-- **Rounded corners** work in both view types. EPUB/snapshot highlights are DOM,
-  so plain CSS `border-radius` applies. PDF highlights are drawn on a canvas, so
-  the plugin patches `fillRect` inside the reader window and rounds *only* fills
-  that match the reader's annotation signature (`multiply` blend mode plus a
-  known annotation colour); everything else on the page is drawn untouched, and
-  any error falls back to the original `fillRect`. The radius scales with the
-  line height, so it looks the same at any zoom — set it to 16 for a full
-  "marker pill" look.
+- **Rounded corners** apply to EPUB/web-snapshot highlights only, where they are
+  DOM elements and plain CSS `border-radius` works. **PDFs are deliberately not
+  rounded.** Version 0.7.0 attempted it by replacing
+  `CanvasRenderingContext2D.prototype.fillRect` inside the reader window; this
+  was reverted in 0.8.0 because Zotero's PDF theme engine (based on Doq)
+  recolours pages by intercepting those same canvas drawing primitives. Two
+  independent patches on one low-level API conflicted: every non-original theme
+  rendered the page completely black, and the rounding never took effect anyway.
+  Destabilising page rendering is not an acceptable price for rounded corners.
 - The reader's colour picker shows Zotero's standard swatches (it is hardcoded in
   the reader), so picking a colour there stores a standard colour as expected.
 - The overlap merger acts on newly-created highlights and merges one overlapping
