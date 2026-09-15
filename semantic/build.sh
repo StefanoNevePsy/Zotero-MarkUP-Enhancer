@@ -9,6 +9,7 @@ rm -f build/zotero-semantic.xpi
 zip -r -FS build/zotero-semantic.xpi \
   manifest.json \
   bootstrap.js \
+  update.json \
   src \
   graph \
   prefs \
