@@ -27,16 +27,27 @@ ZoteroSemantic.Utils = {
     "profileMaxChars": 8000,
     "annotationMaxChars": 3000,
     "graphMaxNodes": 300,
-    "graphMinWeight": 0.12,
+    // Mozilla preferences hold only strings, 32-bit integers and booleans.
+    // A fractional value here makes Zotero.Prefs.set throw, so the minimum edge
+    // weight is stored as a whole percentage and divided when used.
+    "graphMinWeightPct": 12,
     "embeddings": true                 // use embeddings for graph distances
   },
 
   key(name) { return this.PREF_PREFIX + name; },
 
+  // One unwritable preference must never take the whole plugin down: a throw
+  // here used to kill init() before any UI was registered, leaving the plugin
+  // installed but completely inert.
   ensureDefaultPrefs() {
     for (const [name, value] of Object.entries(this.DEFAULTS)) {
-      const k = this.key(name);
-      if (Zotero.Prefs.get(k) === undefined) Zotero.Prefs.set(k, value);
+      try {
+        const k = this.key(name);
+        if (Zotero.Prefs.get(k) === undefined) Zotero.Prefs.set(k, value);
+      } catch (e) {
+        ZoteroSemantic.log("could not set default pref '" + name + "' (" +
+          typeof value + " " + value + "): " + e);
+      }
     }
   },
 
