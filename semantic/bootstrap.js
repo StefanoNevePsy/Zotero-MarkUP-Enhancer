@@ -13,13 +13,36 @@ const SCRIPTS = [
   "src/graph.js"
 ];
 
+// A failure anywhere in startup leaves the plugin installed but completely
+// inert, with nothing shown in the UI to say why. Record the reason somewhere
+// retrievable (Zotero.SemanticBootError) and name the exact file that failed,
+// so a dead plugin can be diagnosed instead of guessed at.
 async function startup({ id, version, rootURI }) {
-  await Zotero.initializationPromise;
-  for (const script of SCRIPTS) {
-    Services.scriptloader.loadSubScript(rootURI + script);
+  try {
+    Zotero.SemanticBootError = null;
+    await Zotero.initializationPromise;
+
+    for (const script of SCRIPTS) {
+      try {
+        Services.scriptloader.loadSubScript(rootURI + script);
+      } catch (e) {
+        throw new Error("loadSubScript failed on " + script + ": " +
+          (e && e.stack ? e.stack : e));
+      }
+    }
+
+    if (typeof ZoteroSemantic === "undefined") {
+      throw new Error("ZoteroSemantic is undefined after loading all scripts");
+    }
+
+    ZoteroSemantic.init({ id, version, rootURI });
+    ZoteroSemantic.addToAllWindows();
+    Zotero.debug("[Zotero Semantic] startup complete, v" + version);
+  } catch (e) {
+    const msg = e && e.stack ? e.stack : String(e);
+    try { Zotero.SemanticBootError = msg; } catch (ignored) { /* ignore */ }
+    Zotero.debug("[Zotero Semantic] STARTUP FAILED: " + msg);
   }
-  ZoteroSemantic.init({ id, version, rootURI });
-  ZoteroSemantic.addToAllWindows();
 }
 
 function shutdown() {
