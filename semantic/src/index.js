@@ -25,7 +25,16 @@ var ZoteroSemantic = {
     this.rootURI = rootURI;
 
     this.Utils.ensureDefaultPrefs();
-    try { Zotero.Semantic = this; } catch (e) { /* ignore */ }
+
+    // Not silent: if this fails the plugin still works but every diagnostic
+    // that looks for Zotero.Semantic would wrongly report it as not loaded.
+    try {
+      Zotero.Semantic = this;
+    } catch (e) {
+      const msg = "could not expose Zotero.Semantic: " + e;
+      this.log(msg);
+      try { Zotero.SemanticBootError = msg; } catch (ignored) { /* ignore */ }
+    }
 
     this._safe("Prefs", () => this._registerPrefs());
     this._safe("Menus", () => this._registerMenus());
