@@ -10,6 +10,7 @@ var ZoteroSemantic = {
   _menuIDs: ["zsem-menu-tag", "zsem-menu-graph", "zsem-menu-test", "zsem-menu-key"],
   _menuRegID: null,      // set when the native MenuManager is used
   _usingMenuManager: false,
+  _ftlRegistered: false,
 
   Utils: null,
   Providers: null,
@@ -36,15 +37,47 @@ var ZoteroSemantic = {
       try { Zotero.SemanticBootError = msg; } catch (ignored) { /* ignore */ }
     }
 
+    // Must come before the menus: their labels are l10n ids, and an unresolved
+    // id renders as a blank menu entry.
+    this._safe("Locale", () => this._registerLocale());
     this._safe("Prefs", () => this._registerPrefs());
     this._safe("Menus", () => this._registerMenus());
     this.initialized = true;
+  },
+
+  // Zotero 10 reworked plugin localization: a plugin's .ftl has to be added to
+  // Zotero's localization source explicitly, otherwise every l10nID resolves to
+  // nothing and menu entries appear with no label at all.
+  _registerLocale() {
+    const file = "zotero-semantic.ftl";
+    if (Zotero.ftl && typeof Zotero.ftl.addResourceIds === "function") {
+      Zotero.ftl.addResourceIds([file]);
+      this._ftlRegistered = true;
+      this.log("ftl registered via Zotero.ftl.addResourceIds");
+    } else {
+      this.log("Zotero.ftl unavailable; falling back to per-window FTL insert");
+    }
+
+    // Confirm the string actually resolves, so a silent l10n failure is visible
+    // in the log instead of only as blank UI.
+    try {
+      if (Zotero.ftl && typeof Zotero.ftl.formatValue === "function") {
+        Promise.resolve(Zotero.ftl.formatValue("zsem-menu-root")).then(
+          (v) => this.log("l10n check zsem-menu-root -> " + JSON.stringify(v)),
+          (e) => this.log("l10n check FAILED: " + e)
+        );
+      }
+    } catch (e) { /* diagnostic only */ }
   },
 
   shutdown() {
     if (this._menuRegID) {
       try { Zotero.MenuManager.unregisterMenu(this._menuRegID); } catch (e) { /* ignore */ }
       this._menuRegID = null;
+    }
+    if (this._ftlRegistered) {
+      try { Zotero.ftl.removeResourceIds(["zotero-semantic.ftl"]); } catch (e) { /* ignore */ }
+      this._ftlRegistered = false;
     }
     this.initialized = false;
     try { delete Zotero.Semantic; } catch (e) { /* ignore */ }
@@ -143,6 +176,16 @@ var ZoteroSemantic = {
   // ---- per-window UI: entries in the item list context menu ----
 
   addToWindow(window) {
+    // Do this even when the native menus are in use: on builds without
+    // Zotero.ftl this is what makes the menu labels resolve.
+    if (!this._ftlRegistered) {
+      try {
+        window.MozXULElement.insertFTLIfNeeded("zotero-semantic.ftl");
+      } catch (e) {
+        this.log("insertFTLIfNeeded: " + e);
+      }
+    }
+
     if (this._usingMenuManager) return; // native menus already registered
     try {
       const doc = window.document;
