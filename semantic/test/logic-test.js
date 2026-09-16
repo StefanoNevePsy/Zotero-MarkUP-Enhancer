@@ -61,5 +61,17 @@ chk('redirige su file di output', cmd.includes("> '/tmp/o.txt'"));
 const plain=P.Apple.buildCommand(U.DEFAULTS.appleTemplatePlain,'/opt/fmx',{prompt:'/tmp/p',schema:'/tmp/s',out:'/tmp/o'});
 chk('fallback senza --schema', !plain.includes('--schema'));
 
+console.log('-- preferenze: Mozilla accetta solo string/bool/intero a 32 bit --');
+// Un valore frazionario faceva lanciare Zotero.Prefs.set, uccidendo init()
+// prima che venisse registrata qualsiasi UI. Qui non deve piu' passare.
+const badPrefs=Object.entries(U.DEFAULTS).filter(([k,v])=>{
+  if (typeof v==='string'||typeof v==='boolean') return false;
+  if (typeof v==='number') return !Number.isInteger(v) || Math.abs(v)>2147483647;
+  return true;
+});
+chk('nessuna preferenza con valore non ammesso'+(badPrefs.length?' -> '+JSON.stringify(badPrefs):''), badPrefs.length===0);
+chk('graphMinWeightPct e intero', Number.isInteger(U.DEFAULTS.graphMinWeightPct));
+chk('la soglia resta 0.12 dopo la divisione', U.DEFAULTS.graphMinWeightPct/100===0.12);
+
 console.log('\n'+pass+' passati, '+fail+' falliti');
 process.exit(fail?1:0);

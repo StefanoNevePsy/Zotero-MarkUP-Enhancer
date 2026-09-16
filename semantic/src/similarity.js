@@ -94,7 +94,7 @@ ZoteroSemantic.Similarity = {
   // Builds { nodes, edges } for a set of items.
   async buildGraph(items, onProgress) {
     const U = ZoteroSemantic.Utils;
-    const minWeight = Number(U.get("graphMinWeight")) || 0.12;
+    const minWeight = (Number(U.get("graphMinWeightPct")) || 12) / 100;
     const useEmb = U.get("embeddings") && ZoteroSemantic.Providers.supportsEmbeddings();
 
     const nodes = [];
