@@ -63,19 +63,42 @@ ZoteroSemantic.Providers = {
     const reuse = U.get("reuseVocabulary");
 
     let p = "Sei un bibliotecario esperto che indicizza una biblioteca di ricerca.\n";
-    p += "Proponi al massimo " + max + " tag tematici per il documento descritto sotto.\n\n";
-    p += "Regole:\n";
-    p += "- I tag descrivono ARGOMENTI e CONCETTI, non il tipo di documento.\n";
-    p += "- Preferisci termini brevi (1-3 parole), nella lingua del documento.\n";
-    p += "- Niente duplicati, niente sinonimi dello stesso concetto.\n";
+    p += "Proponi al massimo " + max + " tag per il documento descritto sotto.\n\n";
+
+    // The single most important instruction. Without it the model returns
+    // umbrella terms ("Tecnologia", "Comunicazione") that match half the
+    // library and therefore help nobody find anything.
+    p += "REGOLA PRINCIPALE - SPECIFICITA':\n";
+    p += "Un tag e' utile solo se DISTINGUE questo documento dagli altri della\n";
+    p += "biblioteca. Se un tag potrebbe applicarsi a piu' di un documento su\n";
+    p += "quattro, NON usarlo.\n";
+    p += "- Usa i concetti, le teorie, i costrutti, i metodi, le popolazioni e i\n";
+    p += "  fenomeni SPECIFICI trattati nel documento.\n";
+    p += "- VIETATE le categorie generiche, per esempio: Tecnologia, Digitale,\n";
+    p += "  Comunicazione, Relazioni, Societa', Scienze sociali, Accademico,\n";
+    p += "  Ricerca, Studio, Salute, Benefici, Aspetti sociali.\n";
+    p += "- Esempio SBAGLIATO (troppo generico): [\"Tecnologia\", \"Comunicazione\", \"Relazioni\"]\n";
+    p += "- Esempio GIUSTO (specifico): [\"chatbot relazionali\", \"legami parasociali\",\n";
+    p += "  \"riparazione conversazionale\", \"antropomorfizzazione\"]\n\n";
+
+    p += "Altre regole:\n";
+    p += "- Termini brevi (1-4 parole), nella lingua del documento.\n";
+    p += "- Niente duplicati e niente sinonimi dello stesso concetto.\n";
+    p += "- Non descrivere il tipo di documento (articolo, revisione, libro).\n";
+    p += "- Meglio pochi tag precisi che molti vaghi: se ne trovi solo 3 di\n";
+    p += "  davvero specifici, restituisci solo quelli.\n";
+
     if (reuse && vocabulary && vocabulary.length) {
-      p += "- RIUSA i tag esistenti qui sotto quando sono pertinenti, con la stessa\n";
-      p += "  grafia esatta. Inventa un tag nuovo solo se nessuno esistente va bene.\n\n";
-      p += "Tag gia' presenti in biblioteca:\n" + vocabulary.join(", ") + "\n";
+      p += "- Puoi riusare un tag dall'elenco qui sotto, con la stessa grafia\n";
+      p += "  esatta, SOLO se descrive specificamente questo documento. Non\n";
+      p += "  riusarlo perche' e' genericamente attinente: in caso di dubbio\n";
+      p += "  preferisci un tag nuovo e piu' preciso.\n\n";
+      p += "Tag gia' presenti in biblioteca (da riusare solo se calzanti):\n";
+      p += vocabulary.join(", ") + "\n";
     }
+
     p += "\nDocumento:\n" + profile + "\n";
     p += "\nRispondi SOLO con un array JSON di stringhe, senza altro testo.\n";
-    p += 'Esempio: ["terapia sistemica", "ipotizzazione", "setting clinico"]\n';
     return p;
   },
 
