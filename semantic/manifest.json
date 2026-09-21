@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Zotero Semantic",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "AI-assisted tagging (Apple on-device models or Gemini) and an interactive relationship graph between documents.",
   "author": "Stefano Neve",
   "homepage_url": "https://github.com/StefanoNevePsy/Zotero-MarkUP-Enhancer",

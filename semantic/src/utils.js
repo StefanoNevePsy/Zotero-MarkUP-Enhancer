@@ -31,7 +31,10 @@ ZoteroSemantic.Utils = {
     // A fractional value here makes Zotero.Prefs.set throw, so the minimum edge
     // weight is stored as a whole percentage and divided when used.
     "graphMinWeightPct": 12,
-    "embeddings": true                 // use embeddings for graph distances
+    "embeddings": true,                // use embeddings for graph distances
+    // Off by default: Zotero.MenuManager can only label entries with an
+    // l10nID, and an unresolved id breaks Zotero's whole context menu.
+    "enableContextMenu": false
   },
 
   key(name) { return this.PREF_PREFIX + name; },
