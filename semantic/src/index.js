@@ -17,6 +17,7 @@ var ZoteroSemantic = {
   Similarity: null,
   Tagger: null,
   Graph: null,
+  Search: null,
 
   init({ id, version, rootURI }) {
     if (this.initialized) return;
@@ -59,6 +60,12 @@ var ZoteroSemantic = {
     const win = Zotero.getMainWindow();
     this.Graph.open(win, null)
       .catch((e) => this.log("graph: " + (e && e.stack ? e.stack : e)));
+  },
+
+  uiSearch() {
+    const win = Zotero.getMainWindow();
+    this.Search.run(win, null)
+      .catch((e) => this.log("search: " + (e && e.stack ? e.stack : e)));
   },
 
   shutdown() {

@@ -2,8 +2,8 @@ const fs=require('fs'),vm=require('vm');
 const prefs={};
 const ctx={ZoteroSemantic:{log:()=>{}},Zotero:{Prefs:{get:k=>prefs[k],set:(k,v)=>prefs[k]=v}},console};
 vm.createContext(ctx);
-for (const f of ['src/utils.js','src/similarity.js','src/providers.js'].map(p=>__dirname+'/../'+p)) vm.runInContext(fs.readFileSync(f,'utf8'),ctx);
-const U=ctx.ZoteroSemantic.Utils, S=ctx.ZoteroSemantic.Similarity, P=ctx.ZoteroSemantic.Providers;
+for (const f of ['src/utils.js','src/similarity.js','src/providers.js','src/search.js'].map(p=>__dirname+'/../'+p)) vm.runInContext(fs.readFileSync(f,'utf8'),ctx);
+const U=ctx.ZoteroSemantic.Utils, S=ctx.ZoteroSemantic.Similarity, P=ctx.ZoteroSemantic.Providers, SE=ctx.ZoteroSemantic.Search;
 U.ensureDefaultPrefs();
 let pass=0,fail=0;
 const chk=(n,c)=>{ c?(pass++,console.log('  ok  '+n)):(fail++,console.log('  FAIL '+n)); };
@@ -73,6 +73,20 @@ chk('arriva fino alla fine', exc.includes('FINE'));
 chk('testo corto restituito integralmente', U.sampleWithinBudget('breve',3000)==='breve');
 chk('testo assente -> stringa vuota', U.sampleWithinBudget('',3000)==='');
 chk('budget piccolo comunque rispettato', U.sampleWithinBudget(libro,500).length<=500);
+
+console.log('-- ranking per pertinenza a un argomento --');
+// La query "e' vicina" al vettore 0 e lontana dal 2.
+const q=[1,0,0];
+const vecs=[[0.9,0.1,0],[0.5,0.5,0],[0,0,1]];
+const rk=SE.rankByVector(q,vecs);
+chk('tutti i documenti classificati', rk.length===3);
+chk('ordinamento decrescente', rk[0].score>=rk[1].score && rk[1].score>=rk[2].score);
+chk('il piu pertinente e il primo', rk[0].i===0);
+chk('il meno pertinente e l\'ultimo', rk[2].i===2);
+chk('punteggi nell\'intervallo atteso', rk.every(r=>r.score>=-1.001&&r.score<=1.001));
+const conBuchi=SE.rankByVector(q,[[1,0,0],null,[0,1,0]]);
+chk('i documenti senza vettore sono esclusi', conBuchi.length===2);
+chk('nessun indice non valido', conBuchi.every(r=>r.i!==1));
 
 console.log('-- preferenze: Mozilla accetta solo string/bool/intero a 32 bit --');
 // Un valore frazionario faceva lanciare Zotero.Prefs.set, uccidendo init()
