@@ -11,8 +11,9 @@
 //      PDF parsing), it is spread across the whole work (so it covers a book),
 //      and it reflects what YOU found worth marking -- which is exactly what
 //      makes a document findable again months later.
-//   3. Sampled text  - only when layers 1-2 are thin: the opening pages plus
-//      evenly spaced excerpts across the document, never the full text.
+//   3. Sampled text  - the opening plus evenly spaced excerpts running to the
+//      end of the document, sized by the budget the layers above leave over.
+//      Never the full text.
 //
 // Everything is hard-capped, so cost and latency stay bounded regardless of size.
 
@@ -55,12 +56,31 @@ ZoteroSemantic.Extractor = {
     const annText = await this._annotationDigest(item);
     if (annText) parts.push("Passaggi evidenziati dal lettore:\n" + annText);
 
-    // --- 3. sampled body text, only if the above is thin ---
-    const thin = abstract.length < 200 && annText.length < 400;
-    if (thin) {
-      const sampled = await this._sampledText(item);
-      if (sampled) parts.push("Estratti dal documento:\n" + sampled);
+    // --- 3. sampled body text, always ---
+    //
+    // This used to run only when the abstract AND the annotations were both
+    // thin, which meant any paper with a normal abstract was tagged from its
+    // abstract alone. That was the main reason suggestions came out generic:
+    // the model never saw the document. Now the text is always sampled, sized
+    // by whatever budget the layers above left over, so the cost stays bounded.
+    const usedSoFar = parts.join("\n").length;
+    const cap = Number(U.get("profileMaxChars")) || 8000;
+    const budget = cap - usedSoFar - 200;   // 200 chars of headroom for labels
+
+    let sampledLen = 0;
+    if (budget > 400) {
+      const sampled = await this._sampledText(item, budget);
+      if (sampled) {
+        sampledLen = sampled.length;
+        parts.push("Estratti dal documento:\n" + sampled);
+      } else {
+        ZoteroSemantic.log("no indexed text for " + item.key +
+          " (allegato mancante o non indicizzato)");
+      }
     }
+
+    ZoteroSemantic.log("profile " + item.key + ": abstract=" + abstract.length +
+      " annotazioni=" + annText.length + " testo=" + sampledLen);
 
     return U.clean(parts.join("\n"), Number(U.get("profileMaxChars")) || 8000);
   },
@@ -109,7 +129,7 @@ ZoteroSemantic.Extractor = {
 
   // Uses Zotero's existing full-text index (attachmentText) -- no PDF parsing --
   // and samples it instead of sending the whole thing.
-  async _sampledText(item) {
+  async _sampledText(item, budget) {
     const U = ZoteroSemantic.Utils;
     try {
       const att = await this._bestAttachment(item);
@@ -117,11 +137,7 @@ ZoteroSemantic.Extractor = {
       let text = att.attachmentText;
       if (text && typeof text.then === "function") text = await text;
       if (!text) return "";
-
-      const head = U.clean(text.slice(0, 1500), 1500);
-      const rest = text.slice(1500);
-      const chunks = U.sample(rest, 6, 500).map((c) => U.clean(c, 500)).filter(Boolean);
-      return U.clean([head].concat(chunks).join("\n…\n"), 4000);
+      return U.sampleWithinBudget(text, budget);
     } catch (e) {
       ZoteroSemantic.log("sampled text: " + e);
       return "";
