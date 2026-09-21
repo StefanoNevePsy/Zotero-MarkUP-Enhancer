@@ -15,7 +15,8 @@ const SCRIPTS = [
   "src/extractor.js",
   "src/similarity.js",
   "src/tagger.js",
-  "src/graph.js"
+  "src/graph.js",
+  "src/search.js"
 ];
 
 // A failure anywhere in startup leaves the plugin installed but completely
