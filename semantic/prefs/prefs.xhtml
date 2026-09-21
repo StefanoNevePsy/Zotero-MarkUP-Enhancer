@@ -1,14 +1,32 @@
 <vbox xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
       xmlns:html="http://www.w3.org/1999/xhtml">
 
-  <linkset>
-    <html:link rel="localization" href="zotero-semantic.ftl"/>
-  </linkset>
+  <!-- Deliberately no <linkset> and no data-l10n-id anywhere: every label here
+       is literal text. An l10n id that fails to resolve renders blank, and in
+       Zotero 10 an unresolved id in a menu can break the whole context menu, so
+       this pane depends on no localisation at all. -->
 
   <groupbox>
-    <label><html:h2 data-l10n-id="zsem-prefs-engine"/></label>
+    <label><html:h2>Comandi</html:h2></label>
+    <description class="zsem-desc">Seleziona prima gli elementi nella finestra principale di Zotero, poi usa questi pulsanti.</description>
+    <hbox align="center" style="gap:8px; flex-wrap:wrap">
+      <button label="Imposta API key Gemini…"
+              oncommand="Zotero.Semantic.uiSetKey()"/>
+      <button label="Verifica provider AI…"
+              oncommand="Zotero.Semantic.uiVerify()"/>
+    </hbox>
+    <hbox align="center" style="gap:8px; flex-wrap:wrap">
+      <button label="Suggerisci tag per gli elementi selezionati…"
+              oncommand="Zotero.Semantic.uiTagSelected()"/>
+      <button label="Mostra rete di relazioni…"
+              oncommand="Zotero.Semantic.uiGraph()"/>
+    </hbox>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2>Motore AI</html:h2></label>
     <hbox align="center">
-      <label data-l10n-id="zsem-prefs-provider" flex="1"/>
+      <label value="Provider" flex="1"/>
       <menulist preference="extensions.zotero.semantic.provider" native="true">
         <menupopup>
           <menuitem value="gemini" label="Gemini (API, richiede key)"/>
@@ -16,71 +34,86 @@
         </menupopup>
       </menulist>
     </hbox>
-    <description class="zsem-desc" data-l10n-id="zsem-prefs-provider-desc"/>
+    <description class="zsem-desc">Gemini funziona su qualsiasi sistema ma invia i dati a Google. Apple on-device elabora tutto sul Mac, senza rete e senza costi, ma richiede una CLI dei Foundation Models (macOS 27 include /usr/bin/fm).</description>
   </groupbox>
 
   <groupbox>
     <label><html:h2>Gemini</html:h2></label>
     <hbox align="center">
-      <label data-l10n-id="zsem-prefs-key" flex="1"/>
+      <label value="API key" flex="1"/>
       <html:input type="password" style="width:20em"
                   preference="extensions.zotero.semantic.geminiKey"/>
     </hbox>
-    <description class="zsem-desc" data-l10n-id="zsem-prefs-key-desc"/>
+    <description class="zsem-desc">Se il campo non salva, usa il pulsante "Imposta API key Gemini…" qui sopra. La chiave è salvata in chiaro nelle preferenze di Zotero, come tutte le preferenze.</description>
     <hbox align="center">
-      <label data-l10n-id="zsem-prefs-model" flex="1"/>
+      <label value="Modello per i tag" flex="1"/>
       <html:input type="text" style="width:14em"
                   preference="extensions.zotero.semantic.geminiModel"/>
     </hbox>
     <hbox align="center">
-      <label data-l10n-id="zsem-prefs-embedmodel" flex="1"/>
+      <label value="Modello per gli embedding" flex="1"/>
       <html:input type="text" style="width:14em"
                   preference="extensions.zotero.semantic.geminiEmbedModel"/>
     </hbox>
   </groupbox>
 
   <groupbox>
-    <label><html:h2 data-l10n-id="zsem-prefs-apple"/></label>
-    <description class="zsem-desc" data-l10n-id="zsem-prefs-apple-desc"/>
+    <label><html:h2>Apple on-device</html:h2></label>
+    <description class="zsem-desc">Su macOS 27 il comando predefinito è già pronto. Su macOS 26 /usr/bin/fm non esiste: indica il percorso di una CLI di terze parti. Nel modello {cli}, {prompt}, {schema} e {out} vengono sostituiti con percorsi reali.</description>
     <hbox align="center">
-      <label data-l10n-id="zsem-prefs-applecli" flex="1"/>
+      <label value="Percorso della CLI" flex="1"/>
       <html:input type="text" style="width:16em"
                   preference="extensions.zotero.semantic.appleCli"/>
     </hbox>
     <hbox align="center">
-      <label data-l10n-id="zsem-prefs-appletpl" flex="1"/>
+      <label value="Modello di comando" flex="1"/>
       <html:input type="text" style="width:26em"
                   preference="extensions.zotero.semantic.appleTemplate"/>
     </hbox>
   </groupbox>
 
   <groupbox>
-    <label><html:h2 data-l10n-id="zsem-prefs-tagging"/></label>
+    <label><html:h2>Tag</html:h2></label>
     <hbox align="center">
-      <label data-l10n-id="zsem-prefs-maxtags" flex="1"/>
+      <label value="Numero massimo di tag proposti" flex="1"/>
       <html:input type="number" min="1" max="20" style="width:5em"
                   preference="extensions.zotero.semantic.maxTags"/>
     </hbox>
     <hbox align="center">
       <html:input type="checkbox" id="zsem-reuse"
                   preference="extensions.zotero.semantic.reuseVocabulary"/>
-      <label control="zsem-reuse" data-l10n-id="zsem-prefs-reuse"/>
+      <label control="zsem-reuse" value="Riusa i tag già presenti in biblioteca quando possibile"/>
     </hbox>
   </groupbox>
 
   <groupbox>
-    <label><html:h2 data-l10n-id="zsem-prefs-graph"/></label>
+    <label><html:h2>Rete di relazioni</html:h2></label>
     <hbox align="center">
       <html:input type="checkbox" id="zsem-emb"
                   preference="extensions.zotero.semantic.embeddings"/>
-      <label control="zsem-emb" data-l10n-id="zsem-prefs-embeddings"/>
+      <label control="zsem-emb" value="Usa gli embedding per le distanze semantiche"/>
     </hbox>
-    <description class="zsem-desc" data-l10n-id="zsem-prefs-embeddings-desc"/>
+    <description class="zsem-desc">Con gli embedding due documenti risultano vicini anche senza tag in comune. Disponibile solo con Gemini; con Apple si usano tag, autori e collezioni. I vettori sono messi in cache su disco, quindi si pagano una sola volta.</description>
     <hbox align="center">
-      <label data-l10n-id="zsem-prefs-maxnodes" flex="1"/>
+      <label value="Numero massimo di documenti nel grafo" flex="1"/>
       <html:input type="number" min="10" max="2000" style="width:6em"
                   preference="extensions.zotero.semantic.graphMaxNodes"/>
     </hbox>
+    <hbox align="center">
+      <label value="Soglia minima di collegamento (%)" flex="1"/>
+      <html:input type="number" min="0" max="100" style="width:5em"
+                  preference="extensions.zotero.semantic.graphMinWeightPct"/>
+    </hbox>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2>Avanzate</html:h2></label>
+    <hbox align="center">
+      <html:input type="checkbox" id="zsem-ctxmenu"
+                  preference="extensions.zotero.semantic.enableContextMenu"/>
+      <label control="zsem-ctxmenu" value="Aggiungi i comandi al menu con il tasto destro (sperimentale)"/>
+    </hbox>
+    <description class="zsem-desc">Disattivato di proposito: su Zotero 10 le voci di menu dei plugin possono avere solo etichette localizzate, e un'etichetta non risolta compare vuota e può bloccare il menu contestuale di Zotero. Riattivalo solo per provarlo; richiede il riavvio di Zotero.</description>
   </groupbox>
 
 </vbox>

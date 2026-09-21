@@ -10,7 +10,6 @@ var ZoteroSemantic = {
   _menuIDs: ["zsem-menu-tag", "zsem-menu-graph", "zsem-menu-test", "zsem-menu-key"],
   _menuRegID: null,      // set when the native MenuManager is used
   _usingMenuManager: false,
-  _ftlRegistered: false,
 
   Utils: null,
   Providers: null,
@@ -37,37 +36,29 @@ var ZoteroSemantic = {
       try { Zotero.SemanticBootError = msg; } catch (ignored) { /* ignore */ }
     }
 
-    // Must come before the menus: their labels are l10n ids, and an unresolved
-    // id renders as a blank menu entry.
-    this._safe("Locale", () => this._registerLocale());
     this._safe("Prefs", () => this._registerPrefs());
     this._safe("Menus", () => this._registerMenus());
     this.initialized = true;
   },
 
-  // Zotero 10 reworked plugin localization: a plugin's .ftl has to be added to
-  // Zotero's localization source explicitly, otherwise every l10nID resolves to
-  // nothing and menu entries appear with no label at all.
-  _registerLocale() {
-    const file = "zotero-semantic.ftl";
-    if (Zotero.ftl && typeof Zotero.ftl.addResourceIds === "function") {
-      Zotero.ftl.addResourceIds([file]);
-      this._ftlRegistered = true;
-      this.log("ftl registered via Zotero.ftl.addResourceIds");
-    } else {
-      this.log("Zotero.ftl unavailable; falling back to per-window FTL insert");
-    }
+  // ---- commands, callable without any window argument -------------------
+  // The preferences pane buttons call these, and they also work from
+  // Tools > Developer > Run JavaScript as Zotero.Semantic.uiVerify() etc.
 
-    // Confirm the string actually resolves, so a silent l10n failure is visible
-    // in the log instead of only as blank UI.
-    try {
-      if (Zotero.ftl && typeof Zotero.ftl.formatValue === "function") {
-        Promise.resolve(Zotero.ftl.formatValue("zsem-menu-root")).then(
-          (v) => this.log("l10n check zsem-menu-root -> " + JSON.stringify(v)),
-          (e) => this.log("l10n check FAILED: " + e)
-        );
-      }
-    } catch (e) { /* diagnostic only */ }
+  uiSetKey() { this.promptForKey(Zotero.getMainWindow()); },
+
+  uiVerify() { this.verifyProvider(Zotero.getMainWindow()); },
+
+  uiTagSelected() {
+    const win = Zotero.getMainWindow();
+    this.Tagger.runOnSelection(win, null)
+      .catch((e) => this.log("tagger: " + (e && e.stack ? e.stack : e)));
+  },
+
+  uiGraph() {
+    const win = Zotero.getMainWindow();
+    this.Graph.open(win, null)
+      .catch((e) => this.log("graph: " + (e && e.stack ? e.stack : e)));
   },
 
   shutdown() {
@@ -75,19 +66,26 @@ var ZoteroSemantic = {
       try { Zotero.MenuManager.unregisterMenu(this._menuRegID); } catch (e) { /* ignore */ }
       this._menuRegID = null;
     }
-    if (this._ftlRegistered) {
-      try { Zotero.ftl.removeResourceIds(["zotero-semantic.ftl"]); } catch (e) { /* ignore */ }
-      this._ftlRegistered = false;
-    }
     this.initialized = false;
     try { delete Zotero.Semantic; } catch (e) { /* ignore */ }
   },
 
-  // From Zotero 10 on, menus must go through the native Zotero.MenuManager;
-  // injecting into the zotero-itemmenu popup by hand no longer has any effect.
-  // Older builds (Zotero 7) have no MenuManager, so the DOM path stays as a
-  // fallback in addToWindow().
+  // The context menu is OFF by default and opt-in via the enableContextMenu
+  // preference.
+  //
+  // Zotero.MenuManager supports no plain label: a menu entry can only be titled
+  // with an l10nID (verified in menuManager.js, which just sets
+  // menuElem.dataset.l10nId and has no fallback). When that id does not resolve
+  // the entry renders blank, and a menu carrying an unresolved id can take down
+  // Zotero's whole context menu -- which is exactly what happened here, harming
+  // normal use of the app. Until the localisation side is proven to work, the
+  // commands live in the preferences pane instead, where plain text labels are
+  // possible and nothing can break the rest of Zotero.
   _registerMenus() {
+    if (!ZoteroSemantic.Utils.get("enableContextMenu")) {
+      this.log("context menu disabled by preference (enableContextMenu)");
+      return;
+    }
     const MM = Zotero.MenuManager;
     if (!MM || typeof MM.registerMenu !== "function") {
       this.log("MenuManager unavailable; falling back to DOM menu injection");
@@ -176,16 +174,6 @@ var ZoteroSemantic = {
   // ---- per-window UI: entries in the item list context menu ----
 
   addToWindow(window) {
-    // Do this even when the native menus are in use: on builds without
-    // Zotero.ftl this is what makes the menu labels resolve.
-    if (!this._ftlRegistered) {
-      try {
-        window.MozXULElement.insertFTLIfNeeded("zotero-semantic.ftl");
-      } catch (e) {
-        this.log("insertFTLIfNeeded: " + e);
-      }
-    }
-
     if (this._usingMenuManager) return; // native menus already registered
     try {
       const doc = window.document;
