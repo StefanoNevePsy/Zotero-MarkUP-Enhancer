@@ -61,6 +61,19 @@ chk('redirige su file di output', cmd.includes("> '/tmp/o.txt'"));
 const plain=P.Apple.buildCommand(U.DEFAULTS.appleTemplatePlain,'/opt/fmx',{prompt:'/tmp/p',schema:'/tmp/s',out:'/tmp/o'});
 chk('fallback senza --schema', !plain.includes('--schema'));
 
+console.log('-- campionamento a budget del testo del documento --');
+// Un libro lungo deve stare nel budget ma essere rappresentato dall'inizio
+// alla fine, non solo dal primo capitolo.
+const libro='INIZIO'+'a'.repeat(300000)+'META'+'b'.repeat(300000)+'FINE';
+const exc=U.sampleWithinBudget(libro,3000);
+chk('rispetta il budget', exc.length<=3000);
+chk('non e vuoto', exc.length>1000);
+chk('include l\'inizio del documento', exc.startsWith('INIZIO'));
+chk('arriva fino alla fine', exc.includes('FINE'));
+chk('testo corto restituito integralmente', U.sampleWithinBudget('breve',3000)==='breve');
+chk('testo assente -> stringa vuota', U.sampleWithinBudget('',3000)==='');
+chk('budget piccolo comunque rispettato', U.sampleWithinBudget(libro,500).length<=500);
+
 console.log('-- preferenze: Mozilla accetta solo string/bool/intero a 32 bit --');
 // Un valore frazionario faceva lanciare Zotero.Prefs.set, uccidendo init()
 // prima che venisse registrata qualsiasi UI. Qui non deve piu' passare.

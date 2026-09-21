@@ -89,6 +89,41 @@ ZoteroSemantic.Utils = {
     return out;
   },
 
+  // A budgeted excerpt of a long text: the opening, plus evenly spaced samples
+  // taken through to the end, never exceeding `budget` characters. This is what
+  // lets a 600-page book be described as cheaply as an article while still
+  // being represented from beginning to end.
+  sampleWithinBudget(text, budget) {
+    if (!text) return "";
+    const b = Math.max(300, Number(budget) || 3000);
+    const s = String(text).replace(/\s+/g, " ").trim();
+    if (s.length <= b) return s;
+
+    const headLen = Math.min(1500, Math.floor(b * 0.35));
+    const head = s.slice(0, headLen);
+    const rest = s.slice(headLen);
+
+    const chunks = 6;
+    const sep = " … ";
+    // Size the excerpts so the joined result lands inside the budget without
+    // needing to be truncated -- truncation would cut off the final excerpt,
+    // and the end of a paper is usually where its conclusions are.
+    const per = Math.max(150, Math.floor((b - headLen - chunks * sep.length) / chunks));
+
+    // Start positions run from 0 to (rest.length - per), so the last excerpt
+    // ends at the end of the document rather than five sixths of the way in.
+    const span = Math.max(0, rest.length - per);
+    const parts = [head];
+    for (let i = 0; i < chunks; i++) {
+      const start = chunks === 1 ? 0 : Math.floor((i * span) / (chunks - 1));
+      parts.push(rest.substr(start, per));
+    }
+
+    let out = parts.join(sep);
+    if (out.length > b) out = out.slice(0, b);
+    return out;
+  },
+
   // Pick n items spread evenly across an array (preserves order).
   spread(arr, n) {
     if (!Array.isArray(arr) || arr.length <= n) return arr || [];
