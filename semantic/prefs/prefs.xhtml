@@ -21,6 +21,10 @@
       <button label="Mostra rete di relazioni…"
               oncommand="Zotero.Semantic.uiGraph()"/>
     </hbox>
+    <hbox align="center" style="gap:8px; flex-wrap:wrap">
+      <button label="Cerca per argomento (lista per pertinenza)…"
+              oncommand="Zotero.Semantic.uiSearch()"/>
+    </hbox>
   </groupbox>
 
   <groupbox>
@@ -99,7 +103,7 @@
                   preference="extensions.zotero.semantic.embeddings"/>
       <label control="zsem-emb" value="Usa gli embedding per le distanze semantiche"/>
     </hbox>
-    <description class="zsem-desc">Con gli embedding due documenti risultano vicini anche senza tag in comune. Disponibile solo con Gemini; con Apple si usano tag, autori e collezioni. I vettori sono messi in cache su disco, quindi si pagano una sola volta.</description>
+    <description class="zsem-desc">Con gli embedding due documenti risultano vicini anche senza tag in comune. Disponibile solo con Gemini; con Apple si usano tag, autori e collezioni. I vettori sono messi in cache su disco, quindi si pagano una sola volta. Gli stessi vettori alimentano la ricerca per argomento.</description>
     <hbox align="center">
       <label value="Numero massimo di documenti nel grafo" flex="1"/>
       <html:input type="number" min="10" max="2000" style="width:6em"
