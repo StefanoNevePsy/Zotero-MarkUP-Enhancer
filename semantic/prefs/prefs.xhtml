@@ -84,6 +84,12 @@
                   preference="extensions.zotero.semantic.reuseVocabulary"/>
       <label control="zsem-reuse" value="Riusa i tag già presenti in biblioteca quando possibile"/>
     </hbox>
+    <hbox align="center">
+      <label value="Caratteri inviati al modello per documento" flex="1"/>
+      <html:input type="number" min="2000" max="60000" step="1000" style="width:7em"
+                  preference="extensions.zotero.semantic.profileMaxChars"/>
+    </hbox>
+    <description class="zsem-desc">Il profilo inviato contiene metadati, le tue evidenziazioni e estratti del testo presi da tutto il documento (inizio, punti intermedi e fine). Alzando questo valore il modello vede più testo e propone tag più precisi, al costo di richieste più lente e più costose. Un libro costa quanto un articolo: viene campionato, non inviato per intero.</description>
   </groupbox>
 
   <groupbox>
