@@ -1,0 +1,60 @@
+/* Shared shell for the plugin's list windows.
+ *
+ * These used to be built by emptying Zotero's basicViewer window and appending
+ * HTML into it. That window's root element is a XUL <window>, not <body>, so
+ * every rule written for `body` -- including the flex column that makes the
+ * list scroll and keeps the button bar on screen -- silently applied to
+ * nothing. Real XHTML documents, reachable now that the plugin registers a
+ * chrome package, make the layout behave as written. */
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font: 13px -apple-system, system-ui, sans-serif;
+  background: Canvas;
+  color: CanvasText;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* The one pane that scrolls. Everything else is fixed, so the buttons stay
+ * reachable no matter how many results there are. */
+.list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+
+.head {
+  flex: 0 0 auto;
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid rgba(128, 128, 128, .3);
+}
+
+.head b { font-size: 14px; }
+.head .sub { opacity: .6; font-size: 11px; margin-top: 3px; }
+
+.bar {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 14px;
+  background: Canvas;
+  border-top: 1px solid rgba(128, 128, 128, .3);
+}
+
+.bar .count { opacity: .65; font-size: 12px; margin-right: auto; }
+.bar button { padding: 6px 14px; }
+
+.foot {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  opacity: .6;
+  font-size: 11px;
+  border-top: 1px solid rgba(128, 128, 128, .3);
+}

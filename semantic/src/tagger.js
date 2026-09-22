@@ -82,141 +82,52 @@ ZoteroSemantic.Tagger = {
   },
 
   // Review window: every proposed tag is a checkbox, ticked by default.
+  //
+  // Opened as a chrome:// document of our own. It used to be built by emptying
+  // Zotero's basicViewer and appending HTML into it, but that window's root is
+  // a XUL <window> with no <body>, so the flex column meant to make the list
+  // scroll applied to nothing -- which is why the proposals could not be
+  // scrolled when there were more than a screenful.
   _review(window, results) {
-    const HTML = "http://www.w3.org/1999/xhtml";
-    const dlg = window.openDialog(
-      "chrome://zotero/content/standalone/basicViewer.xhtml",
-      "zsem-review",
-      "chrome,dialog=no,resizable,centerscreen,width=620,height=640"
-    );
-
-    // basicViewer may not be available on every build; fall back to a plain
-    // confirm listing the proposals.
-    if (!dlg) {
-      this._fallbackConfirm(window, results);
+    if (!ZoteroSemantic.chromeRegistered) {
+      Zotero.alert(window, "Zotero Semantic",
+        "Impossibile aprire la finestra dei tag proposti: la registrazione " +
+        "chrome del plugin non è riuscita all'avvio. Riavvia Zotero.");
       return;
     }
 
-    dlg.addEventListener("load", () => {
-      try {
-        const doc = dlg.document;
-        doc.title = "Zotero Semantic - tag proposti";
-        const body = doc.body || doc.documentElement;
-        while (body.firstChild) body.removeChild(body.firstChild);
+    // The window gets plain data and gives back indexes; the items themselves
+    // never leave this module.
+    const rows = results.map((r, index) => {
+      const a = ((r.item.getCreators() || [])[0] || {}).lastName || "";
+      const y = ((r.item.getField("date") || "").match(/\d{4}/) || [""])[0];
+      return {
+        index,
+        title: r.item.getField("title") || "(senza titolo)",
+        meta: [a, y].filter(Boolean).join(" · "),
+        tags: r.tags
+      };
+    });
 
-        // The list scrolls inside its own pane and the button bar sits outside
-        // it, so the buttons stay reachable no matter how many items there are.
-        const style = doc.createElementNS(HTML, "style");
-        style.textContent = `
-          html, body { height:100%; }
-          body { font: 13px -apple-system, system-ui, sans-serif; margin:0;
-                 background: Canvas; color: CanvasText;
-                 display:flex; flex-direction:column; overflow:hidden; }
-          .list { flex:1 1 auto; overflow-y:auto; padding:12px 14px; }
-          h3 { margin:16px 0 2px; font-size:13px; line-height:1.35; }
-          h3:first-child { margin-top:0; }
-          .meta { opacity:.6; font-size:11px; margin-bottom:7px; }
-          .tags { display:flex; flex-wrap:wrap; gap:6px; }
-          .tags label { display:inline-flex; align-items:center; gap:6px;
-                  padding:4px 10px; border:1px solid rgba(128,128,128,.45);
-                  border-radius:999px; cursor:pointer; white-space:nowrap; }
-          .tags label:hover { border-color:rgba(128,128,128,.9); }
-          .bar { flex:0 0 auto; background:Canvas; padding:10px 14px;
-                 border-top:1px solid rgba(128,128,128,.3); display:flex; gap:8px;
-                 align-items:center; }
-          .count { opacity:.65; font-size:12px; margin-right:auto; }
-          button { padding:6px 14px; }
-        `;
-        body.appendChild(style);
-
-        const list = doc.createElementNS(HTML, "div");
-        list.className = "list";
-        body.appendChild(list);
-
-        const boxes = [];
-        const bar = doc.createElementNS(HTML, "div");
-        bar.className = "bar";
-        const count = doc.createElementNS(HTML, "span");
-        count.className = "count";
-        const refreshCount = () => {
-          const n = boxes.filter((b) => b.cb.checked).length;
-          count.textContent = n + " di " + boxes.length + " tag selezionati";
-        };
-
-        for (const r of results) {
-          const h = doc.createElementNS(HTML, "h3");
-          h.textContent = r.item.getField("title") || "(senza titolo)";
-          list.appendChild(h);
-
-          const meta = doc.createElementNS(HTML, "div");
-          meta.className = "meta";
-          const a = ((r.item.getCreators() || [])[0] || {}).lastName || "";
-          const y = ((r.item.getField("date") || "").match(/\d{4}/) || [""])[0];
-          meta.textContent = [a, y].filter(Boolean).join(" · ");
-          list.appendChild(meta);
-
-          const tags = doc.createElementNS(HTML, "div");
-          tags.className = "tags";
-          list.appendChild(tags);
-
-          for (const tag of r.tags) {
-            const label = doc.createElementNS(HTML, "label");
-            const cb = doc.createElementNS(HTML, "input");
-            cb.type = "checkbox";
-            cb.checked = true;
-            cb.addEventListener("change", refreshCount);
-            const span = doc.createElementNS(HTML, "span");
-            span.textContent = tag;
-            label.appendChild(cb);
-            label.appendChild(span);
-            tags.appendChild(label);
-            boxes.push({ item: r.item, tag, cb });
-          }
-        }
-
-        // Generic suggestions are worth cherry-picking, so make it cheap to
-        // clear everything and tick back only what is actually wanted.
-        const toggle = doc.createElementNS(HTML, "button");
-        const setAll = (v) => {
-          for (const b of boxes) b.cb.checked = v;
-          refreshCount();
-          toggle.textContent = v ? "Deseleziona tutti" : "Seleziona tutti";
-        };
-        toggle.textContent = "Deseleziona tutti";
-        toggle.addEventListener("click", () => {
-          setAll(!boxes.every((b) => b.cb.checked));
-        });
-
-        const cancel = doc.createElementNS(HTML, "button");
-        cancel.textContent = "Annulla";
-        cancel.addEventListener("click", () => dlg.close());
-        const apply = doc.createElementNS(HTML, "button");
-        apply.textContent = "Applica selezionati";
-        apply.addEventListener("click", async () => {
-          apply.disabled = true;
-          const n = await this._apply(boxes);
-          dlg.close();
-          Zotero.alert(window, "Zotero Semantic", "Applicati " + n + " tag.");
-        });
-
-        bar.appendChild(count);
-        bar.appendChild(toggle);
-        bar.appendChild(cancel);
-        bar.appendChild(apply);
-        body.appendChild(bar);
-        refreshCount();
-      } catch (e) {
-        ZoteroSemantic.log("review window: " + (e && e.stack ? e.stack : e));
+    window.openDialog(
+      "chrome://zotero-semantic/content/review.xhtml",
+      "zsem-review",
+      "chrome,dialog=no,resizable,centerscreen,width=620,height=640",
+      {
+        results: rows,
+        apply: (chosen) => this._apply(results, chosen),
+        done: (n) => Zotero.alert(window, "Zotero Semantic", "Applicati " + n + " tag.")
       }
-    }, { once: true });
+    );
   },
 
-  async _apply(boxes) {
+  async _apply(results, chosen) {
     const byItem = new Map();
-    for (const b of boxes) {
-      if (!b.cb.checked) continue;
-      if (!byItem.has(b.item)) byItem.set(b.item, []);
-      byItem.get(b.item).push(b.tag);
+    for (const c of chosen) {
+      const entry = results[c.index];
+      if (!entry) continue;
+      if (!byItem.has(entry.item)) byItem.set(entry.item, []);
+      byItem.get(entry.item).push(c.tag);
     }
     let count = 0;
     for (const [item, tags] of byItem) {
@@ -228,21 +139,5 @@ ZoteroSemantic.Tagger = {
       }
     }
     return count;
-  },
-
-  _fallbackConfirm(window, results) {
-    const lines = results.map(
-      (r) => "• " + (r.item.getField("title") || "") + ": " + r.tags.join(", ")
-    );
-    const ok = Zotero.Prompt ? false : window.confirm(
-      "Applicare questi tag?\n\n" + lines.join("\n")
-    );
-    if (ok) {
-      const boxes = [];
-      for (const r of results) {
-        for (const t of r.tags) boxes.push({ item: r.item, tag: t, cb: { checked: true } });
-      }
-      this._apply(boxes);
-    }
   }
 };

@@ -110,110 +110,46 @@ ZoteroSemantic.Search = {
     return items.slice(0, max);
   },
 
+  // Flatten the ranking into plain rows, so the results window never has to
+  // touch Zotero items.
+  toRows(items, ranked) {
+    return ranked.map((r) => {
+      const item = items[r.i];
+      const a = ((item.getCreators() || [])[0] || {}).lastName || "";
+      const y = ((item.getField("date") || "").match(/\d{4}/) || [""])[0];
+      const tags = (item.getTags() || []).map((x) => x.tag).slice(0, 5).join(" · ");
+      return {
+        id: item.id,
+        score: r.score,
+        title: item.getField("title") || "(senza titolo)",
+        meta: [[a, y].filter(Boolean).join(" · "), tags].filter(Boolean).join("  —  ")
+      };
+    });
+  },
+
   _show(window, topic, items, ranked) {
-    const HTML = "http://www.w3.org/1999/xhtml";
-    const dlg = window.openDialog(
-      "chrome://zotero/content/standalone/basicViewer.xhtml",
+    // A chrome:// URL, not rootURI: openDialog() silently ignores the jar: URL
+    // of a packed plugin, and Zotero's basicViewer is a XUL <window> with no
+    // <body>, so HTML injected into it cannot be laid out or scrolled.
+    if (!ZoteroSemantic.chromeRegistered) {
+      Zotero.alert(window, "Zotero Semantic",
+        "Impossibile aprire la finestra dei risultati: la registrazione chrome " +
+        "del plugin non è riuscita all'avvio. Riavvia Zotero.");
+      return;
+    }
+
+    window.openDialog(
+      "chrome://zotero-semantic/content/search.xhtml",
       "zsem-search",
-      "chrome,dialog=no,resizable,centerscreen,width=680,height=700"
-    );
-    if (!dlg) return;
-
-    dlg.addEventListener("load", () => {
-      try {
-        const doc = dlg.document;
-        doc.title = "Zotero Semantic - pertinenza: " + topic;
-        const body = doc.body || doc.documentElement;
-        while (body.firstChild) body.removeChild(body.firstChild);
-
-        const style = doc.createElementNS(HTML, "style");
-        style.textContent = `
-          html, body { height:100%; }
-          body { font: 13px -apple-system, system-ui, sans-serif; margin:0;
-                 background: Canvas; color: CanvasText;
-                 display:flex; flex-direction:column; overflow:hidden; }
-          .head { flex:0 0 auto; padding:12px 14px 8px;
-                  border-bottom:1px solid rgba(128,128,128,.3); }
-          .head b { font-size:14px; }
-          .head .sub { opacity:.6; font-size:11px; margin-top:3px; }
-          .list { flex:1 1 auto; overflow-y:auto; padding:6px 0; }
-          .row { display:flex; gap:10px; align-items:flex-start;
-                 padding:8px 14px; cursor:pointer; }
-          .row:hover { background:rgba(128,128,128,.12); }
-          .pct { flex:0 0 3.2em; text-align:right; font-variant-numeric:tabular-nums;
-                 opacity:.85; padding-top:1px; }
-          .bar { flex:0 0 70px; height:6px; margin-top:6px; border-radius:3px;
-                 background:rgba(128,128,128,.25); overflow:hidden; }
-          .bar i { display:block; height:100%; background:#5b8fd6; }
-          .txt { flex:1 1 auto; min-width:0; }
-          .t { line-height:1.35; }
-          .m { opacity:.6; font-size:11px; margin-top:2px; }
-          .foot { flex:0 0 auto; padding:8px 14px; opacity:.6; font-size:11px;
-                  border-top:1px solid rgba(128,128,128,.3); }
-        `;
-        body.appendChild(style);
-
-        const head = doc.createElementNS(HTML, "div");
-        head.className = "head";
-        const b = doc.createElementNS(HTML, "b");
-        b.textContent = topic;
-        head.appendChild(b);
-        const sub = doc.createElementNS(HTML, "div");
-        sub.className = "sub";
-        sub.textContent = ranked.length + " documenti ordinati per pertinenza semantica";
-        head.appendChild(sub);
-        body.appendChild(head);
-
-        const list = doc.createElementNS(HTML, "div");
-        list.className = "list";
-        body.appendChild(list);
-
-        for (const r of ranked) {
-          const item = items[r.i];
-          const row = doc.createElementNS(HTML, "div");
-          row.className = "row";
-          row.addEventListener("dblclick", () => {
-            try { window.ZoteroPane.selectItem(item.id); window.focus(); }
-            catch (e) { /* ignore */ }
-          });
-
-          const pct = doc.createElementNS(HTML, "div");
-          pct.className = "pct";
-          pct.textContent = Math.round(r.score * 100) + "%";
-          row.appendChild(pct);
-
-          const bar = doc.createElementNS(HTML, "div");
-          bar.className = "bar";
-          const fill = doc.createElementNS(HTML, "i");
-          fill.style.width = Math.max(2, Math.round(r.score * 100)) + "%";
-          bar.appendChild(fill);
-          row.appendChild(bar);
-
-          const txt = doc.createElementNS(HTML, "div");
-          txt.className = "txt";
-          const t = doc.createElementNS(HTML, "div");
-          t.className = "t";
-          t.textContent = item.getField("title") || "(senza titolo)";
-          txt.appendChild(t);
-          const m = doc.createElementNS(HTML, "div");
-          m.className = "m";
-          const a = ((item.getCreators() || [])[0] || {}).lastName || "";
-          const y = ((item.getField("date") || "").match(/\d{4}/) || [""])[0];
-          const tags = (item.getTags() || []).map((x) => x.tag).slice(0, 5).join(" · ");
-          m.textContent = [[a, y].filter(Boolean).join(" · "), tags].filter(Boolean).join("  —  ");
-          txt.appendChild(m);
-          row.appendChild(txt);
-
-          list.appendChild(row);
+      "chrome,dialog=no,resizable,centerscreen,width=680,height=700",
+      {
+        topic,
+        rows: this.toRows(items, ranked),
+        selectItem: (id) => {
+          try { window.ZoteroPane.selectItem(id); window.focus(); }
+          catch (e) { ZoteroSemantic.log("selectItem: " + e); }
         }
-
-        const foot = doc.createElementNS(HTML, "div");
-        foot.className = "foot";
-        foot.textContent = "Doppio clic su una riga per selezionarla in Zotero.";
-        body.appendChild(foot);
-      } catch (e) {
-        ZoteroSemantic.log("search window: " + (e && e.stack ? e.stack : e));
       }
-    }, { once: true });
+    );
   }
 };

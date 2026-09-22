@@ -1,0 +1,27 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8"/>
+  <title>Zotero Semantic - tag proposti</title>
+  <link rel="stylesheet" href="window.css"/>
+  <style>
+    h3 { margin:16px 0 2px; font-size:13px; line-height:1.35; }
+    h3:first-child { margin-top:0; }
+    .meta { opacity:.6; font-size:11px; margin-bottom:7px; }
+    .tags { display:flex; flex-wrap:wrap; gap:6px; }
+    .tags label { display:inline-flex; align-items:center; gap:6px;
+      padding:4px 10px; border:1px solid rgba(128,128,128,.45);
+      border-radius:999px; cursor:pointer; white-space:nowrap; }
+    .tags label:hover { border-color:rgba(128,128,128,.9); }
+  </style>
+</head>
+<body>
+  <div class="list" id="list"></div>
+  <div class="bar">
+    <span class="count" id="count"></span>
+    <button id="toggle">Deseleziona tutti</button>
+    <button id="cancel">Annulla</button>
+    <button id="apply">Applica selezionati</button>
+  </div>
+  <script src="review.js"></script>
+</body>
+</html>

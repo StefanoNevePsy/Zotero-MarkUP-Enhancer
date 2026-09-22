@@ -2,6 +2,7 @@
 // Zotero Semantic - bootstrapped plugin entry point.
 
 var ZoteroSemantic;
+var chromeHandle = null;
 
 // Marked at parse time, before anything else can go wrong. If this value is
 // missing entirely, Zotero never even loaded this file; if it stops at an
@@ -35,6 +36,31 @@ async function startup({ id, version, rootURI }) {
     await Zotero.initializationPromise;
     stage("zotero ready");
 
+    // Register chrome:// URLs for our own windows.
+    //
+    // window.openDialog() CANNOT open a document addressed through rootURI: for
+    // a packed plugin that is a jar:file:/// URL, and the call then does nothing
+    // at all -- no window content, no error, no exception. That is exactly how
+    // the relationship graph came up as an empty window. Registering a chrome
+    // package makes our documents addressable the same way Zotero's own are.
+    //
+    // Non-fatal: the plugin stays usable for everything that is not a window,
+    // and Graph/Search report the problem instead of opening a blank frame.
+    try {
+      const aomStartup = Components.classes["@mozilla.org/addons/addon-manager-startup;1"]
+        .getService(Components.interfaces.amIAddonManagerStartup);
+      const manifestURI = Services.io.newURI(rootURI + "manifest.json");
+      chromeHandle = aomStartup.registerChrome(manifestURI, [
+        ["content", "zotero-semantic", "content/"]
+      ]);
+      stage("chrome registered");
+    } catch (e) {
+      chromeHandle = null;
+      Zotero.debug("[Zotero Semantic] chrome registration failed: " +
+        (e && e.stack ? e.stack : e));
+      stage("chrome registration FAILED (windows unavailable)");
+    }
+
     for (const script of SCRIPTS) {
       try {
         Services.scriptloader.loadSubScript(rootURI + script);
@@ -49,6 +75,7 @@ async function startup({ id, version, rootURI }) {
       throw new Error("ZoteroSemantic is undefined after loading all scripts");
     }
 
+    ZoteroSemantic.chromeRegistered = !!chromeHandle;
     ZoteroSemantic.init({ id, version, rootURI });
     stage("init done");
 
@@ -63,6 +90,10 @@ async function startup({ id, version, rootURI }) {
 }
 
 function shutdown() {
+  if (chromeHandle) {
+    try { chromeHandle.destruct(); } catch (e) { /* ignore */ }
+    chromeHandle = null;
+  }
   if (typeof ZoteroSemantic === "undefined") return;
   ZoteroSemantic.removeFromAllWindows();
   ZoteroSemantic.shutdown();

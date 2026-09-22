@@ -11,7 +11,7 @@ zip -r -FS build/zotero-semantic.xpi \
   bootstrap.js \
   update.json \
   src \
-  graph \
+  content \
   prefs \
   locale \
   icons \

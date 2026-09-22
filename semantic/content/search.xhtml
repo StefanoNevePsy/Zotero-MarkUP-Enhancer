@@ -1,0 +1,30 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8"/>
+  <title>Zotero Semantic - pertinenza</title>
+  <link rel="stylesheet" href="window.css"/>
+  <style>
+    .list { padding:6px 0; }
+    .row { display:flex; gap:10px; align-items:flex-start;
+      padding:8px 14px; cursor:pointer; }
+    .row:hover { background:rgba(128,128,128,.12); }
+    .pct { flex:0 0 3.2em; text-align:right; font-variant-numeric:tabular-nums;
+      opacity:.85; padding-top:1px; }
+    .meter { flex:0 0 70px; height:6px; margin-top:6px; border-radius:3px;
+      background:rgba(128,128,128,.25); overflow:hidden; }
+    .meter i { display:block; height:100%; background:#5b8fd6; }
+    .txt { flex:1 1 auto; min-width:0; }
+    .t { line-height:1.35; }
+    .m { opacity:.6; font-size:11px; margin-top:2px; }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <b id="topic"></b>
+    <div class="sub" id="sub"></div>
+  </div>
+  <div class="list" id="list"></div>
+  <div class="foot">Doppio clic su una riga per selezionarla in Zotero.</div>
+  <script src="search.js"></script>
+</body>
+</html>

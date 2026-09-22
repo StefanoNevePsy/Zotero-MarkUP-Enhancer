@@ -135,5 +135,51 @@ chk('nessuna preferenza con valore non ammesso'+(badPrefs.length?' -> '+JSON.str
 chk('graphMinWeightPct e intero', Number.isInteger(U.DEFAULTS.graphMinWeightPct));
 chk('la soglia resta 0.12 dopo la divisione', U.DEFAULTS.graphMinWeightPct/100===0.12);
 
+console.log('-- righe della finestra dei risultati --');
+const mkItem=(id,title,last,date,tags)=>({id,getField:f=>f==='title'?title:(f==='date'?date:''),
+  getCreators:()=>last?[{lastName:last}]:[],getTags:()=>tags.map(t=>({tag:t}))});
+const searchItems=[mkItem(1,'Il mito della famiglia','Rossi','2019',['omeostasi']),
+                   mkItem(2,'','Bianchi','',[])];
+const rows=SE.toRows(searchItems,[{i:1,score:0.8},{i:0,score:0.9}]);
+chk('una riga per risultato, nell\'ordine del ranking', rows.length===2 && rows[0].id===2);
+chk('titolo mancante sostituito', rows[0].title==='(senza titolo)');
+chk('id dell\'elemento conservato per il doppio clic', rows[1].id===1);
+chk('metadati compilati', rows[1].meta.includes('Rossi') && rows[1].meta.includes('2019'));
+chk('nessun oggetto Zotero nelle righe', rows.every(r=>typeof r.getField==='undefined'));
+
+console.log('-- finestre: ogni URL chrome:// deve puntare a un file esistente --');
+// La rete di relazioni si apriva vuota perche' openDialog() ignora in silenzio
+// l'URL jar: di un plugin impacchettato. Ora usiamo chrome://, che pero' fallisce
+// altrettanto silenziosamente se il file non c'e': qui lo verifichiamo.
+const path=require('path'), root=path.join(__dirname,'..');
+const srcFiles=fs.readdirSync(path.join(root,'src')).map(f=>'src/'+f);
+let urls=[];
+for (const f of srcFiles) {
+  const t=fs.readFileSync(path.join(root,f),'utf8');
+  urls=urls.concat(t.match(/chrome:\/\/zotero-semantic\/content\/[A-Za-z0-9._-]+/g)||[]);
+}
+chk('almeno una finestra del plugin e dichiarata', urls.length>0);
+const missingWin=urls.filter(u=>!fs.existsSync(path.join(root,'content',u.split('/content/')[1])));
+chk('tutti i documenti delle finestre esistono'+(missingWin.length?' -> '+missingWin:''), missingWin.length===0);
+
+// Anche i riferimenti interni ai documenti (script e fogli di stile): un src
+// sbagliato qui produce di nuovo una finestra che sembra rotta senza errori.
+const missingRef=[];
+for (const f of fs.readdirSync(path.join(root,'content')).filter(f=>f.endsWith('.xhtml'))) {
+  const t=fs.readFileSync(path.join(root,'content',f),'utf8');
+  for (const m of t.matchAll(/(?:src|href)="([^"#:]+)"/g)) {
+    if (!fs.existsSync(path.join(root,'content',m[1]))) missingRef.push(f+' -> '+m[1]);
+  }
+}
+chk('script e css referenziati esistono'+(missingRef.length?' -> '+missingRef:''), missingRef.length===0);
+
+// La registrazione chrome punta a content/: se qualcuno rinomina la cartella o
+// la dimentica nel pacchetto, le finestre tornano vuote.
+const boot=fs.readFileSync(path.join(root,'bootstrap.js'),'utf8');
+chk('bootstrap registra il pacchetto chrome', boot.includes('registerChrome'));
+chk('registra la cartella content/', /\["content", "zotero-semantic", "content\/"\]/.test(boot));
+chk('rilascia la registrazione alla chiusura', boot.includes('chromeHandle.destruct()'));
+chk('content/ finisce nel pacchetto', /^\s*content \\$/m.test(fs.readFileSync(path.join(root,'build.sh'),'utf8')));
+
 console.log('\n'+pass+' passati, '+fail+' falliti');
 process.exit(fail?1:0);

@@ -69,8 +69,18 @@ ZoteroSemantic.Graph = {
       }
     };
 
+    // chrome:// and not rootURI: openDialog() silently ignores the jar: URL of
+    // a packed plugin, which is what produced an empty window.
+    if (!ZoteroSemantic.chromeRegistered) {
+      Zotero.alert(window, "Zotero Semantic",
+        "Impossibile aprire la finestra della rete: la registrazione chrome " +
+        "del plugin non è riuscita all'avvio.\n\nRiavvia Zotero; se il problema " +
+        "resta, guarda Zotero.SemanticBootStage.");
+      return;
+    }
+
     window.openDialog(
-      ZoteroSemantic.rootURI + "graph/graph.xhtml",
+      "chrome://zotero-semantic/content/graph.xhtml",
       "zsem-graph",
       "chrome,dialog=no,resizable,centerscreen,width=1100,height=760",
       args
