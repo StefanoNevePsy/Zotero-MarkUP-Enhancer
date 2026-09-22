@@ -173,6 +173,21 @@ for (const f of fs.readdirSync(path.join(root,'content')).filter(f=>f.endsWith('
 }
 chk('script e css referenziati esistono'+(missingRef.length?' -> '+missingRef:''), missingRef.length===0);
 
+// Ogni getElementById deve trovare un id davvero presente nel documento: un id
+// sbagliato da null, e null.textContent interrompe lo script a meta' lasciando
+// una finestra che sembra funzionante ma non fa nulla.
+const missingId=[];
+for (const js of fs.readdirSync(path.join(root,'content')).filter(f=>f.endsWith('.js'))) {
+  const xhtml=path.join(root,'content',js.replace(/\.js$/,'.xhtml'));
+  if (!fs.existsSync(xhtml)) continue;
+  const markup=fs.readFileSync(xhtml,'utf8');
+  const code=fs.readFileSync(path.join(root,'content',js),'utf8');
+  for (const m of code.matchAll(/getElementById\("([^"]+)"\)/g)) {
+    if (!markup.includes('id="'+m[1]+'"')) missingId.push(js+' -> #'+m[1]);
+  }
+}
+chk('gli id usati dagli script esistono nel markup'+(missingId.length?' -> '+missingId:''), missingId.length===0);
+
 // La registrazione chrome punta a content/: se qualcuno rinomina la cartella o
 // la dimentica nel pacchetto, le finestre tornano vuote.
 const boot=fs.readFileSync(path.join(root,'bootstrap.js'),'utf8');

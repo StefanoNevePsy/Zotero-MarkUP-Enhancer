@@ -5,7 +5,22 @@
 // Edge weight drives BOTH the pull strength and the resting distance, so
 // strongly related documents sit close together and weak links stay far apart.
 
+// A canvas that draws nothing looks exactly like a canvas whose script threw:
+// both are an empty rectangle with a working toolbar above it. This window
+// therefore shows its own failures instead of failing silently.
+function showError(where, e) {
+  const box = document.getElementById("err");
+  if (!box) return;
+  box.style.display = "block";
+  box.textContent = "Errore nella finestra della rete (" + where + "):\n" +
+    (e && e.stack ? e.stack : String(e));
+}
+
 (function () {
+  try { main(); } catch (e) { showError("avvio", e); }
+})();
+
+function main() {
   const args = (window.arguments && window.arguments[0]) || {};
   const data = args.data || { nodes: [], edges: [], mode: "lexical" };
   const selectItem = args.selectItem || function () {};
@@ -16,9 +31,12 @@
   const threshEl = document.getElementById("thresh");
   const searchEl = document.getElementById("search");
 
+  // The link count is here because "many documents, no links" and "nothing is
+  // being drawn at all" look identical on an empty canvas.
   document.getElementById("mode").textContent =
     (data.mode === "semantic" ? "distanze semantiche (embedding)" : "distanze lessicali (tag/autori)") +
-    " · " + data.nodes.length + " documenti" +
+    " · " + data.nodes.length + " documenti · " +
+    data.edges.length + " collegamenti" +
     (data.truncated ? " (troncati)" : "");
 
   // ---- state ----
@@ -51,13 +69,23 @@
     return h;
   }
 
-  function resize() {
+  // Kept in sync from inside the animation loop rather than only at load.
+  //
+  // A canvas drawn into a backing store of 0x0 shows nothing at all, and that
+  // is what happens when this runs before the freshly opened window has been
+  // laid out: clientWidth is still 0, no resize event ever follows, and the
+  // graph stays invisible while everything around it looks fine. Checking each
+  // frame costs nothing and recovers whenever the layout does settle.
+  function ensureSize() {
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = canvas.clientWidth * dpr;
-    canvas.height = canvas.clientHeight * dpr;
+    const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
+    const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    if (canvas.width === w && canvas.height === h) return false;
+    canvas.width = w;
+    canvas.height = h;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return true;
   }
-  window.addEventListener("resize", () => { resize(); });
 
   function activeEdges() {
     return edges.filter((e) => e.w >= minW);
@@ -161,10 +189,27 @@
     ctx.restore();
   }
 
-  function frame() {
-    step();
-    draw();
-    window.requestAnimationFrame(frame);
+  let ticks = 0;
+  let timerDriven = false;
+
+  function tick() {
+    try {
+      // A layout that only settles after the first frames must not leave the
+      // simulation frozen at the position it happened to reach while invisible.
+      if (ensureSize()) alpha = Math.max(alpha, 0.6);
+      step();
+      draw();
+      ticks++;
+      return true;
+    } catch (e) {
+      showError("disegno", e); // reported once: the loop stops here
+      return false;
+    }
+  }
+
+  function rafLoop() {
+    if (timerDriven) return;
+    if (tick()) window.requestAnimationFrame(rafLoop);
   }
 
   // ---- interaction ----
@@ -252,6 +297,24 @@
   searchEl.addEventListener("input", () => { query = searchEl.value.trim(); });
   document.getElementById("reheat").addEventListener("click", () => { alpha = 1; });
 
-  resize();
-  frame();
-})();
+  ensureSize();
+  rafLoop();
+
+  // The other way a canvas ends up blank while everything around it works:
+  // requestAnimationFrame never delivers a frame in this window. Detect that
+  // instead of assuming it, and drive the same loop from a timer.
+  window.setTimeout(() => {
+    if (ticks <= 1) {
+      timerDriven = true;
+      window.setInterval(tick, 33);
+    }
+    // Last resort: say what is wrong rather than show an empty rectangle.
+    if (!canvas.clientWidth || !canvas.clientHeight) {
+      showError("dimensioni", new Error(
+        "L'area di disegno ha dimensione " + canvas.clientWidth + "x" +
+        canvas.clientHeight + ". Prova a ridimensionare la finestra."));
+    } else if (!nodes.length) {
+      showError("dati", new Error("Nessun documento da mostrare."));
+    }
+  }, 1200);
+}
