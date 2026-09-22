@@ -7,8 +7,15 @@ ZoteroSemantic.Utils = {
   DEFAULTS: {
     "provider": "gemini",              // gemini | apple
     "geminiKey": "",
-    "geminiModel": "gemini-2.5-flash",
-    "geminiEmbedModel": "text-embedding-004",
+    // An alias Google keeps pointing at the newest Flash release, announcing
+    // breaking changes two weeks ahead. A pinned name is retired sooner or
+    // later -- gemini-2.5-flash was -- and silently breaks tagging.
+    "geminiModel": "gemini-flash-latest",
+    // text-embedding-004, the previous default, was shut down on 14 Jan 2026.
+    // gemini-embedding-001 is the stable successor and, unlike the newer
+    // multimodal model, supports the RETRIEVAL_QUERY / RETRIEVAL_DOCUMENT task
+    // types the search and the concepts rely on.
+    "geminiEmbedModel": "gemini-embedding-001",
     // Embeddings are chosen independently of the tagging engine, so the graph
     // and the topic search keep working with Apple on-device tagging.
     "embedProvider": "gemini",         // gemini | nvidia
@@ -61,6 +68,41 @@ ZoteroSemantic.Utils = {
           typeof value + " " + value + "): " + e);
       }
     }
+  },
+
+  // Model names Google has retired, with their replacement. Defaults are
+  // written into the preferences at first install, so changing DEFAULTS alone
+  // never reaches existing installs: they keep the dead name and fail.
+  // Only exact retired names are replaced; a model someone chose is kept.
+  RETIRED: {
+    geminiModel: {
+      "gemini-2.5-flash": "gemini-flash-latest",
+      "gemini-2.5-flash-lite": "gemini-flash-latest",
+      "gemini-2.0-flash": "gemini-flash-latest",
+      "gemini-2.0-flash-lite": "gemini-flash-latest",
+      "gemini-1.5-flash": "gemini-flash-latest"
+    },
+    geminiEmbedModel: {
+      "text-embedding-004": "gemini-embedding-001",
+      "embedding-001": "gemini-embedding-001"
+    }
+  },
+
+  // Returns the list of changes made, for the log.
+  migratePrefs() {
+    const changed = [];
+    for (const [name, map] of Object.entries(this.RETIRED)) {
+      try {
+        const cur = Zotero.Prefs.get(this.key(name));
+        if (typeof cur === "string" && Object.prototype.hasOwnProperty.call(map, cur.trim())) {
+          Zotero.Prefs.set(this.key(name), map[cur.trim()]);
+          changed.push(name + ": " + cur + " -> " + map[cur.trim()]);
+        }
+      } catch (e) {
+        ZoteroSemantic.log("migrate pref '" + name + "': " + e);
+      }
+    }
+    return changed;
   },
 
   get(name) {

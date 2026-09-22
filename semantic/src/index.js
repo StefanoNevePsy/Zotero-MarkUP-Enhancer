@@ -30,6 +30,11 @@ var ZoteroSemantic = {
     this.rootURI = rootURI;
 
     this.Utils.ensureDefaultPrefs();
+    try {
+      for (const c of this.Utils.migratePrefs()) this.log("modello ritirato sostituito: " + c);
+    } catch (e) {
+      this.log("migratePrefs: " + e);
+    }
 
     // Not silent: if this fails the plugin still works but every diagnostic
     // that looks for Zotero.Semantic would wrongly report it as not loaded.
@@ -353,12 +358,33 @@ var ZoteroSemantic = {
     progress.changeHeadline("Zotero Semantic: verifica " + name + "\u2026");
     progress.show();
     try {
+      this.Providers.lastNotice = null;
       const tags = await this.Providers.selfTest();
+
+      // The graph, the topic search and the concepts all depend on embeddings,
+      // which may use a different engine and key: check them in the same click.
+      let embedLine;
+      const eName = this.Providers.embedProviderName();
+      if (!this.Providers.supportsEmbeddings()) {
+        embedLine = "Embedding (" + eName + "): nessuna API key impostata. Rete, ricerca " +
+          "per argomento e concetti non funzioneranno.";
+      } else {
+        try {
+          const v = await this.Providers.embed("terapia sistemica familiare", "query");
+          embedLine = Array.isArray(v)
+            ? "Embedding (" + eName + "): funzionanti, vettori da " + v.length + " dimensioni."
+            : "Embedding (" + eName + "): nessun vettore restituito.";
+        } catch (e) {
+          embedLine = "Embedding (" + eName + "): NON funzionanti.\n" + (e.message || e);
+        }
+      }
+      const notice = this.Providers.lastNotice ? "\n\nAttenzione: " + this.Providers.lastNotice : "";
+
       progress.close();
       if (tags && tags.length) {
         Zotero.alert(window, "Zotero Semantic",
-          "Provider \"" + name + "\" funzionante.\n\n" +
-          "Tag di prova restituiti:\n" + tags.join(", "));
+          "Tag (" + name + "): funzionanti.\nTag di prova: " + tags.join(", ") +
+          "\n\n" + embedLine + notice);
       } else {
         Zotero.alert(window, "Zotero Semantic",
           "Il provider \"" + name + "\" ha risposto, ma non ha restituito tag " +

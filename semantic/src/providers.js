@@ -12,6 +12,9 @@
 // through /bin/sh and read the file back.
 
 ZoteroSemantic.Providers = {
+  // Set when a retired model was replaced at runtime; shown by the provider check.
+  lastNotice: null,
+
   name() {
     return ZoteroSemantic.Utils.get("provider") === "apple" ? "apple" : "gemini";
   },
@@ -248,6 +251,12 @@ ZoteroSemantic.Providers = {
 
   Gemini: {
     _base: "https://generativelanguage.googleapis.com/v1beta/models/",
+    // Used when the configured model answers 404, i.e. Google has retired it.
+    FALLBACK_MODEL: "gemini-flash-latest",
+    FALLBACK_EMBED: "gemini-embedding-001",
+    // gemini-embedding-001 reads at most 2048 tokens; 6000 characters stays
+    // under that for Italian and English text.
+    EMBED_CHARS: 6000,
 
     _key() {
       const k = (ZoteroSemantic.Utils.get("geminiKey") || "").trim();
@@ -255,79 +264,88 @@ ZoteroSemantic.Providers = {
       return k;
     },
 
+    _isGone(e) {
+      const status = e && (e.status || (e.xmlhttp && e.xmlhttp.status));
+      return status === 404;
+    },
+
+    // Runs `call(model)`; if the model no longer exists, runs it once more with
+    // the fallback and says so in the log and in the provider check. A retired
+    // model should cost a notice, not a plugin that stops working.
+    async _withModel(pref, fallback, call) {
+      const U = ZoteroSemantic.Utils;
+      const model = String(U.get(pref) || fallback).trim();
+      try {
+        return await call(model);
+      } catch (e) {
+        if (!this._isGone(e) || model === fallback) throw e;
+        const note = "Il modello \"" + model + "\" non esiste piu' su Gemini: uso \"" +
+          fallback + "\". Aggiorna il nome nelle impostazioni.";
+        ZoteroSemantic.log(note);
+        ZoteroSemantic.Providers.lastNotice = note;
+        return call(fallback);
+      }
+    },
+
     async generateList(prompt) {
       const U = ZoteroSemantic.Utils;
-      const model = U.get("geminiModel") || "gemini-2.5-flash";
+      return this._withModel("geminiModel", this.FALLBACK_MODEL, async (model) => {
+        const url = this._base + encodeURIComponent(model) +
+          ":generateContent?key=" + encodeURIComponent(this._key());
 
-      const url = this._base + encodeURIComponent(model) +
-        ":generateContent?key=" + encodeURIComponent(this._key());
+        // responseSchema makes the array of strings a guarantee rather than a
+        // request the model may phrase differently.
+        const body = {
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.2,
+            responseMimeType: "application/json",
+            responseSchema: { type: "ARRAY", items: { type: "STRING" } }
+          }
+        };
 
-      // responseSchema makes the array of strings a guarantee rather than a
-      // request the model may phrase differently.
-      const body = {
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: "application/json",
-          responseSchema: { type: "ARRAY", items: { type: "STRING" } }
-        }
-      };
+        const res = await Zotero.HTTP.request("POST", url, {
+          body: JSON.stringify(body),
+          headers: { "Content-Type": "application/json" },
+          responseType: "json"
+        });
 
-      const res = await Zotero.HTTP.request("POST", url, {
-        body: JSON.stringify(body),
-        headers: { "Content-Type": "application/json" },
-        responseType: "json"
+        const data = res.response;
+        const text = data && data.candidates && data.candidates[0] &&
+          data.candidates[0].content && data.candidates[0].content.parts &&
+          data.candidates[0].content.parts.map((p) => p.text || "").join("");
+        return ZoteroSemantic.Providers.normalizeTags(U.parseJSONLoose(text));
       });
-
-      const data = res.response;
-      const text = data && data.candidates && data.candidates[0] &&
-        data.candidates[0].content && data.candidates[0].content.parts &&
-        data.candidates[0].content.parts.map((p) => p.text || "").join("");
-      return ZoteroSemantic.Providers.normalizeTags(U.parseJSONLoose(text));
     },
 
     async embed(text, kind) {
-      const U = ZoteroSemantic.Utils;
-      const model = U.get("geminiEmbedModel") || "text-embedding-004";
-      const url = this._base + encodeURIComponent(model) +
-        ":embedContent?key=" + encodeURIComponent(this._key());
-      // Gemini has the same asymmetry as other retrieval embedders: documents
-      // and queries are embedded for different roles.
-      const body = {
-        model: "models/" + model,
-        content: { parts: [{ text: U.clean(text, 8000) }] },
-        taskType: kind === "query" ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT"
-      };
-      const res = await Zotero.HTTP.request("POST", url, {
-        body: JSON.stringify(body),
-        headers: { "Content-Type": "application/json" },
-        responseType: "json"
-      });
-      const v = res.response && res.response.embedding && res.response.embedding.values;
-      return Array.isArray(v) ? v : null;
+      return (await this.embedBatch([text], kind))[0];
     },
 
-    // batchEmbedContents: one request for a whole list, same task types.
+    // batchEmbedContents: one request for a whole list. Gemini has the same
+    // asymmetry as other retrieval embedders: documents and queries are
+    // embedded for different roles.
     async embedBatch(texts, kind) {
       const U = ZoteroSemantic.Utils;
-      const model = U.get("geminiEmbedModel") || "text-embedding-004";
-      const url = this._base + encodeURIComponent(model) +
-        ":batchEmbedContents?key=" + encodeURIComponent(this._key());
       const taskType = kind === "query" ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT";
-      const body = {
-        requests: texts.map((t) => ({
-          model: "models/" + model,
-          content: { parts: [{ text: U.clean(t, 8000) }] },
-          taskType
-        }))
-      };
-      const res = await Zotero.HTTP.request("POST", url, {
-        body: JSON.stringify(body),
-        headers: { "Content-Type": "application/json" },
-        responseType: "json"
+      return this._withModel("geminiEmbedModel", this.FALLBACK_EMBED, async (model) => {
+        const url = this._base + encodeURIComponent(model) +
+          ":batchEmbedContents?key=" + encodeURIComponent(this._key());
+        const body = {
+          requests: texts.map((t) => ({
+            model: "models/" + model,
+            content: { parts: [{ text: U.clean(t, this.EMBED_CHARS) }] },
+            taskType
+          }))
+        };
+        const res = await Zotero.HTTP.request("POST", url, {
+          body: JSON.stringify(body),
+          headers: { "Content-Type": "application/json" },
+          responseType: "json"
+        });
+        const list = (res.response && res.response.embeddings) || [];
+        return texts.map((_, i) => (list[i] && Array.isArray(list[i].values) ? list[i].values : null));
       });
-      const list = (res.response && res.response.embeddings) || [];
-      return texts.map((_, i) => (list[i] && Array.isArray(list[i].values) ? list[i].values : null));
     }
   },
 

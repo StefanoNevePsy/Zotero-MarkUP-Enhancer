@@ -282,6 +282,45 @@ chk('1500 documenti: ogni nota sotto il limite ('+shardsNeeded+' blocchi, max '+
 chk('piccola biblioteca: minimo di blocchi', ST.planShards(tricky,2,ST.LIMIT)===ST.MIN_SHARDS);
 chk('il limite resta ben sotto quello dichiarato da Zotero', ST.LIMIT<=80000);
 
+console.log('-- modelli ritirati da Google --');
+// text-embedding-004 e' stato spento il 14 gennaio 2026: chi aveva installato il
+// plugin prima lo aveva salvato nelle preferenze, e cambiare solo il valore
+// predefinito non lo avrebbe mai raggiunto.
+chk('i predefiniti non sono modelli ritirati',
+  !Object.keys(U.RETIRED).some(k=>Object.prototype.hasOwnProperty.call(U.RETIRED[k],U.DEFAULTS[k])));
+chk('embedding predefinito con supporto ai task type', U.DEFAULTS.geminiEmbedModel==='gemini-embedding-001');
+U.set('geminiEmbedModel','text-embedding-004'); U.set('geminiModel','gemini-2.5-flash');
+const mig=U.migratePrefs();
+chk('embedding ritirato sostituito', U.get('geminiEmbedModel')==='gemini-embedding-001');
+chk('modello dei tag ritirato sostituito', U.get('geminiModel')==='gemini-flash-latest');
+chk('le sostituzioni vengono riportate nel log', mig.length===2);
+U.set('geminiModel','gemini-3.7-flash');
+chk('un modello scelto dall\'utente non viene toccato', U.migratePrefs().length===0 && U.get('geminiModel')==='gemini-3.7-flash');
+U.set('geminiModel',U.DEFAULTS.geminiModel);
+chk('testo per gli embedding entro il limite di gemini-embedding-001', P.Gemini.EMBED_CHARS<=6000);
+
+console.log('-- ripiego se un modello non esiste piu (404) --');
+(async()=>{
+  const G=P.Gemini, calls=[];
+  U.set('geminiModel','modello-spento');
+  P.lastNotice=null;
+  const r=await G._withModel('geminiModel',G.FALLBACK_MODEL,async m=>{calls.push(m); if(m==='modello-spento'){const e=new Error('404');e.status=404;throw e;} return 'ok:'+m;});
+  chk('usa il modello di ripiego', r==='ok:'+G.FALLBACK_MODEL && calls.join()==='modello-spento,'+G.FALLBACK_MODEL);
+  chk('lo segnala all\'utente', /non esiste piu/.test(P.lastNotice||''));
+  let rethrown=false;
+  try { await G._withModel('geminiModel',G.FALLBACK_MODEL,async()=>{const e=new Error('quota');e.status=429;throw e;}); }
+  catch(e){ rethrown=e.status===429; }
+  chk('altri errori (es. 429) non attivano il ripiego', rethrown);
+  U.set('geminiModel',G.FALLBACK_MODEL);
+  let n=0, failed=false;
+  try { await G._withModel('geminiModel',G.FALLBACK_MODEL,async()=>{n++;const e=new Error('404');e.status=404;throw e;}); }
+  catch(e){ failed=true; }
+  chk('nessun ciclo se anche il ripiego manca', failed && n===1);
+  U.set('geminiModel',U.DEFAULTS.geminiModel);
+  finish();
+})();
+
+function finish(){
 console.log('-- ogni documento .xhtml e XML ben formato --');
 // Un .xhtml viene letto come XML: anche un "<canvas>" dentro un commento CSS
 // apre un tag, e il documento intero non viene caricato -- senza alcun errore
@@ -397,3 +436,4 @@ chk('content/ finisce nel pacchetto', /^\s*content \\$/m.test(fs.readFileSync(pa
 
 console.log('\n'+pass+' passati, '+fail+' falliti');
 process.exit(fail?1:0);
+}
