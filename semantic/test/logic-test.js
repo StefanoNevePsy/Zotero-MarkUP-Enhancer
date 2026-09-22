@@ -188,6 +188,15 @@ for (const js of fs.readdirSync(path.join(root,'content')).filter(f=>f.endsWith(
 }
 chk('gli id usati dagli script esistono nel markup'+(missingId.length?' -> '+missingId:''), missingId.length===0);
 
+// save() e restore() del contesto 2D devono bilanciarsi: un frame interrotto
+// fra i due fa crescere lo stack e sfasa tutti i frame successivi.
+for (const js of fs.readdirSync(path.join(root,'content')).filter(f=>f.endsWith('.js'))) {
+  const code=fs.readFileSync(path.join(root,'content',js),'utf8');
+  const saves=(code.match(/ctx\.save\(\)/g)||[]).length;
+  const restores=(code.match(/ctx\.restore\(\)/g)||[]).length;
+  if (saves||restores) chk('save/restore bilanciati in '+js, saves===restores);
+}
+
 // La registrazione chrome punta a content/: se qualcuno rinomina la cartella o
 // la dimentica nel pacchetto, le finestre tornano vuote.
 const boot=fs.readFileSync(path.join(root,'bootstrap.js'),'utf8');

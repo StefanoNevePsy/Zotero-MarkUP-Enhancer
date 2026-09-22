@@ -79,6 +79,12 @@ function main() {
   // laid out: clientWidth is still 0, no resize event ever follows, and the
   // graph stays invisible while everything around it looks fine. Checking each
   // frame costs nothing and recovers whenever the layout does settle.
+  // What we last applied, rather than what the canvas reports back. Gecko may
+  // clamp or refuse a size, and comparing against the read-back value then
+  // never matches -- which would reallocate the bitmap on every single frame
+  // until an allocation fails and the context is wedged for good.
+  let applied = { w: 0, h: 0, dpr: 0 };
+
   function ensureSize() {
     const cw = canvas.clientWidth, ch = canvas.clientHeight;
     // While the window reports no drawable area, leave the canvas untouched.
@@ -87,11 +93,10 @@ function main() {
     // had appeared.
     if (!cw || !ch) return false;
     const dpr = window.devicePixelRatio || 1;
-    const w = Math.max(1, Math.round(cw * dpr));
-    const h = Math.max(1, Math.round(ch * dpr));
-    if (canvas.width === w && canvas.height === h) return false;
-    canvas.width = w;
-    canvas.height = h;
+    if (cw === applied.w && ch === applied.h && dpr === applied.dpr) return false;
+    applied = { w: cw, h: ch, dpr };
+    canvas.width = Math.max(1, Math.round(cw * dpr));
+    canvas.height = Math.max(1, Math.round(ch * dpr));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     return true;
   }
@@ -158,8 +163,19 @@ function main() {
   // ---- rendering ----
   function draw() {
     const w = canvas.clientWidth, h = canvas.clientHeight;
+    // Gecko puts a canvas into a permanent error state as soon as an operation
+    // is attempted on a zero-sized bitmap, and from then on every single call
+    // throws "Canvas is already in error state". Skipping the frame is free;
+    // one call on a degenerate canvas costs the whole window.
+    if (!w || !h || !canvas.width || !canvas.height) return;
+
+    // Start from a known transform rather than from whatever the previous
+    // frame left behind: now that a failed frame no longer ends the loop, an
+    // abort between save() and restore() would otherwise grow the state stack
+    // and skew every frame after it.
+    const dpr = applied.dpr || window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    ctx.save();
     ctx.translate(w / 2 + view.x, h / 2 + view.y);
     ctx.scale(view.k, view.k);
 
@@ -195,7 +211,6 @@ function main() {
         ctx.fillText(label, n.x, n.y + r + 11 / view.k);
       }
     }
-    ctx.restore();
   }
 
   let ticks = 0;
@@ -207,6 +222,25 @@ function main() {
   // persists is treated as fatal.
   const FATAL_AFTER = 45; // frames, i.e. roughly three quarters of a second
   let failures = 0;
+  let firstError = null;
+
+  // Gecko's canvas error state is sticky: once entered, every call throws and
+  // nothing clears it by itself. Assigning width or height resets the canvas
+  // bitmap (HTML spec) even when the value is unchanged, so going through a
+  // different size and back is the way out.
+  function recoverCanvas() {
+    try {
+      const cw = canvas.clientWidth, ch = canvas.clientHeight;
+      if (!cw || !ch) return;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = 1;
+      canvas.height = 1;
+      canvas.width = Math.max(1, Math.round(cw * dpr));
+      canvas.height = Math.max(1, Math.round(ch * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      applied = { w: cw, h: ch, dpr };
+    } catch (e) { /* nothing more to try; the next frame will retry */ }
+  }
 
   function tick() {
     try {
@@ -218,8 +252,13 @@ function main() {
       ticks++;
       failures = 0;
     } catch (e) {
+      // Report the FIRST failure, not the latest: once the canvas is in its
+      // error state every later call reports only that state, hiding whatever
+      // actually caused it.
+      if (!firstError) firstError = e;
+      recoverCanvas();
       if (++failures >= FATAL_AFTER) {
-        showError("disegno", e);
+        showError("disegno", firstError);
         return false;
       }
     }
