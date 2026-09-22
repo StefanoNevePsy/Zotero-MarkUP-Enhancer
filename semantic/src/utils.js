@@ -9,6 +9,12 @@ ZoteroSemantic.Utils = {
     "geminiKey": "",
     "geminiModel": "gemini-2.5-flash",
     "geminiEmbedModel": "text-embedding-004",
+    // Embeddings are chosen independently of the tagging engine, so the graph
+    // and the topic search keep working with Apple on-device tagging.
+    "embedProvider": "gemini",         // gemini | nvidia
+    "nvidiaKey": "",
+    "nvidiaBase": "https://integrate.api.nvidia.com/v1",
+    "nvidiaEmbedModel": "nvidia/nemotron-3-embed-1b",
     // Apple on-device CLI. macOS 27 ships /usr/bin/fm; on macOS 26 point this at
     // a third-party CLI (e.g. fmx). {cli}, {prompt}, {schema} and {out} are
     // substituted with real paths.

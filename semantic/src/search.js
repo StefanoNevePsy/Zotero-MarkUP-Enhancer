@@ -28,8 +28,8 @@ ZoteroSemantic.Search = {
 
     if (!ZoteroSemantic.Providers.supportsEmbeddings() || !U.get("embeddings")) {
       Zotero.alert(window, "Zotero Semantic",
-        "La ricerca per argomento richiede gli embedding, disponibili con il " +
-        "provider Gemini e con l'opzione \"Usa gli embedding\" attiva.");
+        "La ricerca per argomento richiede gli embedding: imposta una API key " +
+        "per il motore di embedding scelto e attiva \"Usa gli embedding\".");
       return;
     }
 
@@ -55,7 +55,7 @@ ZoteroSemantic.Search = {
 
     let ranked;
     try {
-      const queryVec = await ZoteroSemantic.Providers.embed(topic);
+      const queryVec = await ZoteroSemantic.Providers.embed(topic, "query");
       if (!Array.isArray(queryVec)) throw new Error("Nessun embedding per la query.");
 
       const vectors = [];

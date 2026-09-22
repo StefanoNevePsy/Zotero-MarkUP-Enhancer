@@ -50,12 +50,14 @@ ZoteroSemantic.Similarity = {
     const U = ZoteroSemantic.Utils;
     const cache = await this.loadCache();
     const profile = await ZoteroSemantic.Extractor.buildShortProfile(item);
-    const sig = U.hashString(profile);
+    // The signature includes the embedding engine and model: vectors from
+    // different models live in different spaces and must not be reused.
+    const sig = U.hashString(ZoteroSemantic.Providers.embedSignature() + "|" + profile);
     const entry = cache[item.key];
     if (entry && entry.sig === sig && Array.isArray(entry.v)) return entry.v;
 
     if (onProgress) onProgress(item);
-    const v = await ZoteroSemantic.Providers.embed(profile);
+    const v = await ZoteroSemantic.Providers.embed(profile, "passage");
     if (Array.isArray(v)) {
       cache[item.key] = { sig, v };
       return v;

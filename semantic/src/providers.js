@@ -23,14 +23,45 @@ ZoteroSemantic.Providers = {
     return this.current().suggestTags(profile, vocabulary);
   },
 
-  async embed(text) {
-    const p = this.current();
+  // ---- embeddings -------------------------------------------------------
+  // Chosen independently of the tagging engine: the Apple on-device CLI has no
+  // embeddings API, and without this split picking it would silently disable
+  // the relationship graph and the topic search.
+  //
+  // `kind` is "passage" for documents being indexed and "query" for a search
+  // query. Retrieval embedders are asymmetric -- NVIDIA's documentation warns
+  // that getting input_type wrong causes "large drops in retrieval accuracy" --
+  // so this distinction is carried through every call site.
+
+  embedProviderName() {
+    return ZoteroSemantic.Utils.get("embedProvider") === "nvidia" ? "nvidia" : "gemini";
+  },
+
+  embedProvider() {
+    return this.embedProviderName() === "nvidia" ? this.Nvidia : this.Gemini;
+  },
+
+  // Vectors from different models are not comparable, so this goes into the
+  // cache key: changing engine or model invalidates old vectors instead of
+  // silently mixing incompatible spaces.
+  embedSignature() {
+    const U = ZoteroSemantic.Utils;
+    return this.embedProviderName() === "nvidia"
+      ? "nvidia:" + U.get("nvidiaEmbedModel")
+      : "gemini:" + U.get("geminiEmbedModel");
+  },
+
+  async embed(text, kind) {
+    const p = this.embedProvider();
     if (typeof p.embed !== "function") return null;
-    return p.embed(text);
+    return p.embed(text, kind === "query" ? "query" : "passage");
   },
 
   supportsEmbeddings() {
-    return typeof this.current().embed === "function";
+    const U = ZoteroSemantic.Utils;
+    const key = this.embedProviderName() === "nvidia"
+      ? U.get("nvidiaKey") : U.get("geminiKey");
+    return !!String(key || "").trim();
   },
 
   // Models may answer with a bare array, or -- when a structured-output schema
@@ -145,14 +176,17 @@ ZoteroSemantic.Providers = {
       return ZoteroSemantic.Providers.normalizeTags(U.parseJSONLoose(text));
     },
 
-    async embed(text) {
+    async embed(text, kind) {
       const U = ZoteroSemantic.Utils;
       const model = U.get("geminiEmbedModel") || "text-embedding-004";
       const url = this._base + encodeURIComponent(model) +
         ":embedContent?key=" + encodeURIComponent(this._key());
+      // Gemini has the same asymmetry as other retrieval embedders: documents
+      // and queries are embedded for different roles.
       const body = {
         model: "models/" + model,
-        content: { parts: [{ text: U.clean(text, 8000) }] }
+        content: { parts: [{ text: U.clean(text, 8000) }] },
+        taskType: kind === "query" ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT"
       };
       const res = await Zotero.HTTP.request("POST", url, {
         body: JSON.stringify(body),
@@ -161,6 +195,49 @@ ZoteroSemantic.Providers = {
       });
       const v = res.response && res.response.embedding && res.response.embedding.values;
       return Array.isArray(v) ? v : null;
+    }
+  },
+
+  // ---- NVIDIA (embeddings only) -------------------------------------------
+  // OpenAI-shaped /v1/embeddings. nemotron-3-embed-1b returns 2048-dimensional
+  // vectors and is validated to 4096 tokens, so long profiles are truncated at
+  // the end by the service rather than rejected. No suggestTags(): this engine
+  // is wired up purely as an embedding source.
+
+  Nvidia: {
+    // Pure, so the input_type contract can be asserted in tests.
+    buildBody(text, kind, model) {
+      return {
+        input: [String(text)],
+        model: model,
+        input_type: kind === "query" ? "query" : "passage",
+        encoding_format: "float",
+        truncate: "END"
+      };
+    },
+
+    async embed(text, kind) {
+      const U = ZoteroSemantic.Utils;
+      const key = String(U.get("nvidiaKey") || "").trim();
+      if (!key) throw new Error("Nessuna API key NVIDIA impostata nelle preferenze.");
+
+      const base = String(U.get("nvidiaBase") || "https://integrate.api.nvidia.com/v1")
+        .replace(/\/+$/, "");
+      const model = U.get("nvidiaEmbedModel") || "nvidia/nemotron-3-embed-1b";
+      const body = this.buildBody(U.clean(text, 12000), kind, model);
+
+      const res = await Zotero.HTTP.request("POST", base + "/embeddings", {
+        body: JSON.stringify(body),
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Authorization": "Bearer " + key
+        },
+        responseType: "json"
+      });
+
+      const first = res.response && res.response.data && res.response.data[0];
+      return first && Array.isArray(first.embedding) ? first.embedding : null;
     }
   },
 

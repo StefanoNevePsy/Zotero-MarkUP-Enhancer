@@ -62,6 +62,36 @@
   </groupbox>
 
   <groupbox>
+    <label><html:h2>Motore di embedding</html:h2></label>
+    <description class="zsem-desc">Gli embedding sono i vettori che danno le distanze nella rete di relazioni e l'ordine nella ricerca per argomento. Si scelgono separatamente dal motore dei tag: così puoi taggare in locale con Apple e avere comunque grafo e ricerca.</description>
+    <hbox align="center">
+      <label value="Provider" flex="1"/>
+      <menulist preference="extensions.zotero.semantic.embedProvider" native="true">
+        <menupopup>
+          <menuitem value="gemini" label="Gemini (usa la key qui sopra)"/>
+          <menuitem value="nvidia" label="NVIDIA NIM (nemotron, key gratuita)"/>
+        </menupopup>
+      </menulist>
+    </hbox>
+    <hbox align="center">
+      <label value="API key NVIDIA" flex="1"/>
+      <html:input type="password" style="width:20em"
+                  preference="extensions.zotero.semantic.nvidiaKey"/>
+    </hbox>
+    <hbox align="center">
+      <label value="Modello NVIDIA" flex="1"/>
+      <html:input type="text" style="width:20em"
+                  preference="extensions.zotero.semantic.nvidiaEmbedModel"/>
+    </hbox>
+    <hbox align="center">
+      <label value="Endpoint NVIDIA" flex="1"/>
+      <html:input type="text" style="width:20em"
+                  preference="extensions.zotero.semantic.nvidiaBase"/>
+    </hbox>
+    <description class="zsem-desc">La key gratuita si ottiene su build.nvidia.com. nemotron-3-embed-1b produce vettori a 2048 dimensioni, più fini di quelli di Gemini. Cambiando motore o modello la cache dei vettori viene ricalcolata: vettori di modelli diversi non sono confrontabili tra loro.</description>
+  </groupbox>
+
+  <groupbox>
     <label><html:h2>Apple on-device</html:h2></label>
     <description class="zsem-desc">Su macOS 27 il comando predefinito è già pronto. Su macOS 26 /usr/bin/fm non esiste: indica il percorso di una CLI di terze parti. Nel modello {cli}, {prompt}, {schema} e {out} vengono sostituiti con percorsi reali.</description>
     <hbox align="center">
@@ -103,7 +133,7 @@
                   preference="extensions.zotero.semantic.embeddings"/>
       <label control="zsem-emb" value="Usa gli embedding per le distanze semantiche"/>
     </hbox>
-    <description class="zsem-desc">Con gli embedding due documenti risultano vicini anche senza tag in comune. Disponibile solo con Gemini; con Apple si usano tag, autori e collezioni. I vettori sono messi in cache su disco, quindi si pagano una sola volta. Gli stessi vettori alimentano la ricerca per argomento.</description>
+    <description class="zsem-desc">Con gli embedding due documenti risultano vicini anche senza tag in comune. Richiede una key per il motore di embedding scelto qui sopra; senza, si usano soltanto tag, autori e collezioni. I vettori sono messi in cache su disco, quindi si pagano una sola volta. Gli stessi vettori alimentano la ricerca per argomento.</description>
     <hbox align="center">
       <label value="Numero massimo di documenti nel grafo" flex="1"/>
       <html:input type="number" min="10" max="2000" style="width:6em"

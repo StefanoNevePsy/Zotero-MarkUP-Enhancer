@@ -88,6 +88,41 @@ const conBuchi=SE.rankByVector(q,[[1,0,0],null,[0,1,0]]);
 chk('i documenti senza vettore sono esclusi', conBuchi.length===2);
 chk('nessun indice non valido', conBuchi.every(r=>r.i!==1));
 
+console.log('-- embedding: asimmetria query/passaggio e separazione dei motori --');
+// NVIDIA avverte che sbagliare input_type causa "large drops in retrieval
+// accuracy": il documento va indicizzato come "passage", la ricerca come "query".
+const bodyDoc=P.Nvidia.buildBody('testo','passage','nvidia/nemotron-3-embed-1b');
+const bodyQry=P.Nvidia.buildBody('testo','query','nvidia/nemotron-3-embed-1b');
+chk('documento indicizzato come passage', bodyDoc.input_type==='passage');
+chk('ricerca inviata come query', bodyQry.input_type==='query');
+chk('kind sconosciuto ricade su passage', P.Nvidia.buildBody('t',undefined,'m').input_type==='passage');
+chk('testo incapsulato in un array', Array.isArray(bodyDoc.input) && bodyDoc.input[0]==='testo');
+chk('modello passato al servizio', bodyDoc.model==='nvidia/nemotron-3-embed-1b');
+chk('troncamento lato servizio invece del rifiuto', bodyDoc.truncate==='END');
+
+// La firma entra nella chiave di cache: vettori di modelli diversi vivono in
+// spazi diversi e non vanno mai confrontati fra loro.
+U.set('embedProvider','gemini');
+const sigGemini=P.embedSignature();
+chk('con Gemini gli embedding usano Gemini', P.embedProvider()===P.Gemini);
+U.set('embedProvider','nvidia');
+const sigNvidia=P.embedSignature();
+chk('con NVIDIA gli embedding usano NVIDIA', P.embedProvider()===P.Nvidia);
+chk('la firma cambia cambiando motore', sigGemini!==sigNvidia);
+U.set('nvidiaEmbedModel','nvidia/altro-modello');
+chk('la firma cambia cambiando modello', P.embedSignature()!==sigNvidia);
+
+// Il motore dei tag e quello degli embedding sono indipendenti: con Apple per i
+// tag il grafo deve continuare a funzionare.
+U.set('provider','apple');
+U.set('nvidiaKey','chiave-finta');
+chk('tagging Apple + embedding NVIDIA convivono', P.name()==='apple' && P.embedProviderName()==='nvidia');
+chk('gli embedding sono disponibili con la key NVIDIA', P.supportsEmbeddings()===true);
+U.set('nvidiaKey','');
+chk('senza key NVIDIA gli embedding sono disattivati', P.supportsEmbeddings()===false);
+U.set('embedProvider','gemini'); U.set('provider','gemini');
+U.set('nvidiaEmbedModel',U.DEFAULTS.nvidiaEmbedModel);
+
 console.log('-- preferenze: Mozilla accetta solo string/bool/intero a 32 bit --');
 // Un valore frazionario faceva lanciare Zotero.Prefs.set, uccidendo init()
 // prima che venisse registrata qualsiasi UI. Qui non deve piu' passare.
