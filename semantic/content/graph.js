@@ -12,8 +12,11 @@ function showError(where, e) {
   const box = document.getElementById("err");
   if (!box) return;
   box.style.display = "block";
+  // Gecko's e.stack does NOT start with the message the way V8's does, so
+  // printing the stack alone loses the only line that says what went wrong.
+  const head = e && e.name ? e.name + ": " + (e.message || "") : String(e);
   box.textContent = "Errore nella finestra della rete (" + where + "):\n" +
-    (e && e.stack ? e.stack : String(e));
+    head + (e && e.stack ? "\n\n" + e.stack : "");
 }
 
 (function () {
@@ -77,9 +80,15 @@ function main() {
   // graph stays invisible while everything around it looks fine. Checking each
   // frame costs nothing and recovers whenever the layout does settle.
   function ensureSize() {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    // While the window reports no drawable area, leave the canvas untouched.
+    // Forcing a degenerate buffer on it is what makes the 2D context start
+    // throwing on the next call, which killed the loop just after the graph
+    // had appeared.
+    if (!cw || !ch) return false;
     const dpr = window.devicePixelRatio || 1;
-    const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
-    const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    const w = Math.max(1, Math.round(cw * dpr));
+    const h = Math.max(1, Math.round(ch * dpr));
     if (canvas.width === w && canvas.height === h) return false;
     canvas.width = w;
     canvas.height = h;
@@ -192,6 +201,13 @@ function main() {
   let ticks = 0;
   let timerDriven = false;
 
+  // A frame can fail transiently while the window is still being set up, and
+  // dropping one frame costs nothing. Ending the loop on it, however, leaves a
+  // window that drew the graph once and then froze -- so only a failure that
+  // persists is treated as fatal.
+  const FATAL_AFTER = 45; // frames, i.e. roughly three quarters of a second
+  let failures = 0;
+
   function tick() {
     try {
       // A layout that only settles after the first frames must not leave the
@@ -200,11 +216,14 @@ function main() {
       step();
       draw();
       ticks++;
-      return true;
+      failures = 0;
     } catch (e) {
-      showError("disegno", e); // reported once: the loop stops here
-      return false;
+      if (++failures >= FATAL_AFTER) {
+        showError("disegno", e);
+        return false;
+      }
     }
+    return true;
   }
 
   function rafLoop() {
