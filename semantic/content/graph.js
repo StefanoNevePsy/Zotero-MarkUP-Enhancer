@@ -5,10 +5,33 @@
 // Edge weight drives BOTH the pull strength and the resting distance, so
 // strongly related documents sit close together and weak links stay far apart.
 
+// A bitmap bigger than the graphics backend will allocate is refused with
+// "Canvas exceeds max size", and the 2D context is then wedged permanently.
+// The backing store is a resource like any other, so it gets an explicit
+// budget instead of being whatever the window size multiplied by the device
+// pixel ratio happens to produce.
+const MAX_SIDE = 8192;      // px per side
+const MAX_PIXELS = 16e6;    // total, i.e. a 4000x4000 bitmap
+
+// Pure: the scale at which a `cw` x `ch` CSS-pixel area can be rendered
+// without exceeding the budget. Normally this is just the device pixel ratio;
+// it only drops for a very large window, where a slightly softer image is
+// better than a canvas that refuses to draw at all.
+function backingScale(cw, ch, dpr) {
+  const w = Math.max(1, Number(cw) || 0);
+  const h = Math.max(1, Number(ch) || 0);
+  let s = Number(dpr) > 0 ? Number(dpr) : 1;
+  s = Math.min(s, MAX_SIDE / w, MAX_SIDE / h);
+  const px = w * h * s * s;
+  if (px > MAX_PIXELS) s *= Math.sqrt(MAX_PIXELS / px);
+  return Math.max(0.05, s);
+}
+
 // A canvas that draws nothing looks exactly like a canvas whose script threw:
 // both are an empty rectangle with a working toolbar above it. This window
 // therefore shows its own failures instead of failing silently.
-function showError(where, e) {
+function showError(where, e, detail) {
+  if (typeof document === "undefined") return;
   const box = document.getElementById("err");
   if (!box) return;
   box.style.display = "block";
@@ -16,7 +39,7 @@ function showError(where, e) {
   // printing the stack alone loses the only line that says what went wrong.
   const head = e && e.name ? e.name + ": " + (e.message || "") : String(e);
   box.textContent = "Errore nella finestra della rete (" + where + "):\n" +
-    head + (e && e.stack ? "\n\n" + e.stack : "");
+    head + (detail ? "\n\n" + detail : "") + (e && e.stack ? "\n\n" + e.stack : "");
 }
 
 (function () {
@@ -83,7 +106,16 @@ function main() {
   // clamp or refuse a size, and comparing against the read-back value then
   // never matches -- which would reallocate the bitmap on every single frame
   // until an allocation fails and the context is wedged for good.
-  let applied = { w: 0, h: 0, dpr: 0 };
+  let applied = { w: 0, h: 0, dpr: 0, scale: 1 };
+
+  // What the window currently measures, quoted in the error box: a size
+  // problem is unreadable without the numbers that produced it.
+  function measurements() {
+    return "area " + canvas.clientWidth + "x" + canvas.clientHeight +
+      " css · dpr " + (window.devicePixelRatio || 1) +
+      " · bitmap " + canvas.width + "x" + canvas.height +
+      " · scala " + Math.round(applied.scale * 100) / 100;
+  }
 
   function ensureSize() {
     const cw = canvas.clientWidth, ch = canvas.clientHeight;
@@ -94,10 +126,11 @@ function main() {
     if (!cw || !ch) return false;
     const dpr = window.devicePixelRatio || 1;
     if (cw === applied.w && ch === applied.h && dpr === applied.dpr) return false;
-    applied = { w: cw, h: ch, dpr };
-    canvas.width = Math.max(1, Math.round(cw * dpr));
-    canvas.height = Math.max(1, Math.round(ch * dpr));
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const scale = backingScale(cw, ch, dpr);
+    applied = { w: cw, h: ch, dpr, scale };
+    canvas.width = Math.max(1, Math.round(cw * scale));
+    canvas.height = Math.max(1, Math.round(ch * scale));
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
     return true;
   }
 
@@ -173,8 +206,8 @@ function main() {
     // frame left behind: now that a failed frame no longer ends the loop, an
     // abort between save() and restore() would otherwise grow the state stack
     // and skew every frame after it.
-    const dpr = applied.dpr || window.devicePixelRatio || 1;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const s = applied.scale || 1;
+    ctx.setTransform(s, 0, 0, s, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.translate(w / 2 + view.x, h / 2 + view.y);
     ctx.scale(view.k, view.k);
@@ -233,12 +266,13 @@ function main() {
       const cw = canvas.clientWidth, ch = canvas.clientHeight;
       if (!cw || !ch) return;
       const dpr = window.devicePixelRatio || 1;
+      const scale = backingScale(cw, ch, dpr);
       canvas.width = 1;
       canvas.height = 1;
-      canvas.width = Math.max(1, Math.round(cw * dpr));
-      canvas.height = Math.max(1, Math.round(ch * dpr));
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      applied = { w: cw, h: ch, dpr };
+      canvas.width = Math.max(1, Math.round(cw * scale));
+      canvas.height = Math.max(1, Math.round(ch * scale));
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      applied = { w: cw, h: ch, dpr, scale };
     } catch (e) { /* nothing more to try; the next frame will retry */ }
   }
 
@@ -258,7 +292,7 @@ function main() {
       if (!firstError) firstError = e;
       recoverCanvas();
       if (++failures >= FATAL_AFTER) {
-        showError("disegno", firstError);
+        showError("disegno", firstError, measurements());
         return false;
       }
     }

@@ -3,8 +3,8 @@
     "semantic@stefanonevepsy": {
       "updates": [
         {
-          "version": "0.9.4",
-          "update_link": "https://github.com/StefanoNevePsy/Zotero-MarkUP-Enhancer/releases/download/semantic-v0.9.4/zotero-semantic.xpi",
+          "version": "0.9.5",
+          "update_link": "https://github.com/StefanoNevePsy/Zotero-MarkUP-Enhancer/releases/download/semantic-v0.9.5/zotero-semantic.xpi",
           "applications": {
             "zotero": {
               "strict_min_version": "7.0"

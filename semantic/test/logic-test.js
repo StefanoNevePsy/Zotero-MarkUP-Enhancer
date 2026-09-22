@@ -147,6 +147,29 @@ chk('id dell\'elemento conservato per il doppio clic', rows[1].id===1);
 chk('metadati compilati', rows[1].meta.includes('Rossi') && rows[1].meta.includes('2019'));
 chk('nessun oggetto Zotero nelle righe', rows.every(r=>typeof r.getField==='undefined'));
 
+console.log('-- dimensione del buffer del canvas --');
+// "Canvas exceeds max size" blocca il contesto 2D in modo permanente: il buffer
+// non deve mai superare il budget, per quanto grande sia la finestra.
+const gctx={console};
+vm.createContext(gctx);
+vm.runInContext(fs.readFileSync(__dirname+'/../content/graph.js','utf8'),gctx);
+const graphSrc=fs.readFileSync(__dirname+'/../content/graph.js','utf8');
+// Le dichiarazioni const non diventano proprieta del contesto: il budget si
+// legge dal sorgente, cosi il test resta legato ai valori veri.
+const bs=gctx.backingScale;
+const MS=Number((graphSrc.match(/MAX_SIDE\s*=\s*([\d.e]+)/)||[])[1]);
+const MP=Number((graphSrc.match(/MAX_PIXELS\s*=\s*([\d.e]+)/)||[])[1]);
+chk('budget letto dal sorgente', Number.isFinite(MS) && Number.isFinite(MP));
+const within=(w,h,d)=>{const s=bs(w,h,d);return w*s<=MS+1 && h*s<=MS+1 && w*h*s*s<=MP*1.001;};
+chk('finestra normale: usa il device pixel ratio', bs(1100,720,2)===2);
+chk('schermo non retina: scala 1', bs(1100,720,1)===1);
+chk('finestra enorme: resta nel budget', within(20000,12000,2));
+chk('lato estremo: resta nel budget', within(60000,300,2));
+chk('dpr assurdo: resta nel budget', within(1400,900,40));
+chk('scala mai nulla o negativa', bs(0,0,0)>0 && bs(-5,-5,-5)>0);
+chk('valori non numerici non producono NaN', Number.isFinite(bs(undefined,null,NaN)));
+chk('non ingrandisce mai oltre il dpr richiesto', bs(400,300,2)<=2);
+
 console.log('-- finestre: ogni URL chrome:// deve puntare a un file esistente --');
 // La rete di relazioni si apriva vuota perche' openDialog() ignora in silenzio
 // l'URL jar: di un plugin impacchettato. Ora usiamo chrome://, che pero' fallisce
