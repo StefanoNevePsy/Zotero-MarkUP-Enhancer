@@ -10,11 +10,17 @@
     #bar { position:absolute; top:0; left:0; right:0; height:38px; display:flex;
       align-items:center; gap:12px; padding:0 12px; box-sizing:border-box;
       border-bottom:1px solid rgba(128,128,128,.35); background:Canvas; z-index:2; }
-    #bar input[type=range] { width:130px; vertical-align:middle; }
-    #bar .grow { flex:1; }
-    #search { padding:4px 8px; border-radius:6px; width:190px;
+    /* One line, always: labels stay beside their controls, controls do not
+       shrink, and the status text is the part that gives way. */
+    #bar > * { flex:0 0 auto; }
+    #bar label { white-space:nowrap; display:flex; align-items:center; gap:6px; }
+    #bar input[type=range] { width:110px; }
+    #bar .grow { flex:1 1 0; }
+    #search { padding:4px 8px; border-radius:6px; width:170px;
       border:1px solid rgba(128,128,128,.4); background:Field; color:FieldText; }
-    #mode { opacity:.65; font-size:11px; }
+    #lens { max-width:190px; }
+    #mode { flex:0 1 auto; min-width:0; opacity:.65; font-size:11px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     /* The stage is a plain div, so left/right/top/bottom really stretch it.
        A canvas is a replaced element: positioned the same way it would NOT
        stretch, its width would stay its intrinsic one -- the bitmap size --
@@ -37,7 +43,8 @@
 <body>
   <div id="bar">
     <label>Soglia <input type="range" id="thresh" min="0" max="100" value="0"/></label>
-    <input type="text" id="search" placeholder="Cerca titolo o tag…"/>
+    <input type="text" id="search" placeholder="Cerca titolo, tag o concetto…"/>
+    <label>Lente <select id="lens"><option value="">nessuna</option></select></label>
     <span id="mode"></span>
     <span class="grow"></span>
     <button id="reheat">Riordina</button>

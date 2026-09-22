@@ -7,11 +7,16 @@
   const topic = args.topic || "";
   const rows = args.rows || [];
   const selectItem = args.selectItem || function () {};
+  const selectItems = args.selectItems || function () {};
 
   document.title = "Zotero Semantic - pertinenza: " + topic;
   document.getElementById("topic").textContent = topic;
   document.getElementById("sub").textContent =
-    rows.length + " documenti ordinati per pertinenza semantica";
+    args.subtitle || (rows.length + " documenti ordinati per pertinenza semantica");
+
+  const all = document.getElementById("select-all");
+  all.disabled = !rows.length;
+  all.addEventListener("click", () => selectItems(rows.map((r) => r.id)));
 
   const list = document.getElementById("list");
 
@@ -28,7 +33,8 @@
     const meter = document.createElement("div");
     meter.className = "meter";
     const fill = document.createElement("i");
-    fill.style.width = Math.max(2, Math.min(100, Math.round(r.score * 100))) + "%";
+    const bar = typeof r.bar === "number" ? r.bar : r.score;
+    fill.style.width = Math.max(2, Math.min(100, Math.round(bar * 100))) + "%";
     meter.appendChild(fill);
     row.appendChild(meter);
 

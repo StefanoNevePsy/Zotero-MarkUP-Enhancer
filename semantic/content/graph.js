@@ -68,6 +68,9 @@ function main() {
     " · " + data.nodes.length + " documenti · " +
     data.edges.length + " collegamenti" +
     (data.truncated ? " (troncati)" : "");
+  // The status line gives way first when the toolbar is narrow; keep it
+  // readable on hover.
+  document.getElementById("mode").title = document.getElementById("mode").textContent;
 
   // ---- state ----
   const N = data.nodes.length;
@@ -90,13 +93,70 @@ function main() {
   let last = { x: 0, y: 0 };
 
   const maxDeg = Math.max(1, ...nodes.map((n) => n.deg));
-  const radius = (n) => 4 + 7 * Math.sqrt(n.deg / maxDeg);
 
+  // ---- concept lens ----
+  // With a lens, a node's size and colour say how much of that document is
+  // about the chosen concept; documents that do not discuss it fade out.
+  const lensEl = document.getElementById("lens");
+  let lens = "";
+  let lensMax = 0;
+
+  function shareOf(n, concept) {
+    if (!concept) return 0;
+    const want = concept.toLowerCase();
+    const hit = (n.concepts || []).find(([c]) => String(c).toLowerCase() === want);
+    return hit ? hit[1] : 0;
+  }
+
+  function setLens(concept) {
+    lens = concept || "";
+    lensMax = lens ? Math.max(0, ...nodes.map((n) => shareOf(n, lens))) : 0;
+    lensEl.value = lens;
+  }
+
+  // Options: the concepts present in this graph, most widespread first.
+  const freq = new Map();
+  for (const n of nodes) for (const [c] of n.concepts || []) freq.set(c, (freq.get(c) || 0) + 1);
+  for (const [c, count] of [...freq.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
+    const o = document.createElement("option");
+    o.value = c;
+    o.textContent = c + " (" + count + ")";
+    lensEl.appendChild(o);
+  }
+  if (!freq.size) {
+    lensEl.disabled = true;
+    lensEl.title = "Nessun documento del grafo è stato analizzato per concetti.";
+  }
+  const initial = data.activeConcept && [...freq.keys()]
+    .find((c) => c.toLowerCase() === String(data.activeConcept).toLowerCase());
+  setLens(initial || "");
+
+  function radius(n) {
+    if (lens) {
+      const s = shareOf(n, lens);
+      return s > 0 && lensMax > 0 ? 4 + 12 * Math.sqrt(s / lensMax) : 3;
+    }
+    return 4 + 7 * Math.sqrt(n.deg / maxDeg);
+  }
+
+  // Without a lens, colour follows the document's dominant concept, so
+  // thematic groups show at a glance; tags and authors are the fallback for
+  // documents not yet analysed.
   function hue(n) {
     let h = 0;
-    const s = (n.tags && n.tags[0]) || n.author || n.title || "";
+    const dominant = n.concepts && n.concepts[0] && n.concepts[0][0];
+    const s = dominant || (n.tags && n.tags[0]) || n.author || n.title || "";
     for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
     return h;
+  }
+
+  function nodeFill(n, lit) {
+    if (lens) {
+      const s = shareOf(n, lens);
+      if (!(s > 0) || !lit) return "rgba(128,128,128,0.16)";
+      return "hsla(28,85%,58%," + (0.35 + 0.6 * (s / (lensMax || 1))) + ")";
+    }
+    return "hsla(" + hue(n) + ",62%,58%," + (lit ? 0.95 : 0.15) + ")";
   }
 
   // Kept in sync from inside the animation loop rather than only at load.
@@ -147,7 +207,8 @@ function main() {
     const q = query.toLowerCase();
     return (n.title || "").toLowerCase().includes(q) ||
       (n.author || "").toLowerCase().includes(q) ||
-      (n.tags || []).some((t) => t.toLowerCase().includes(q));
+      (n.tags || []).some((t) => t.toLowerCase().includes(q)) ||
+      (n.concepts || []).some(([c]) => String(c).toLowerCase().includes(q));
   }
 
   // ---- simulation ----
@@ -219,7 +280,9 @@ function main() {
     const dim = !!query;
     for (const e of activeEdges()) {
       const a = nodes[e.s], b = nodes[e.t];
-      const lit = !dim || (matches(a) && matches(b));
+      // Under a lens, only links touching a document about the concept stay lit.
+      const inLens = !lens || shareOf(a, lens) > 0 || shareOf(b, lens) > 0;
+      const lit = inLens && (!dim || (matches(a) && matches(b)));
       ctx.strokeStyle = "rgba(130,130,150," + (lit ? 0.12 + 0.55 * e.w : 0.04) + ")";
       ctx.lineWidth = (0.4 + 2.2 * e.w) / view.k;
       ctx.beginPath();
@@ -233,14 +296,17 @@ function main() {
       const r = radius(n);
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = "hsla(" + hue(n) + ",62%,58%," + (lit ? 0.95 : 0.15) + ")";
+      ctx.fillStyle = nodeFill(n, lit);
       ctx.fill();
       if (n === hover) {
         ctx.lineWidth = 2 / view.k;
         ctx.strokeStyle = "rgba(255,255,255,.9)";
         ctx.stroke();
       }
-      if (view.k > 0.85 && lit) {
+      // Under a lens, label the documents that discuss the concept even when
+      // zoomed out: they are the ones being looked for.
+      const labelled = lit && (lens ? shareOf(n, lens) > 0 : view.k > 0.85);
+      if (labelled) {
         ctx.fillStyle = "rgba(128,128,140," + (view.k > 1.2 ? 0.95 : 0.6) + ")";
         ctx.font = (11 / view.k) + "px -apple-system, system-ui, sans-serif";
         ctx.textAlign = "center";
@@ -362,7 +428,13 @@ function main() {
         m.textContent = meta;
         tip.appendChild(m);
       }
-      if (n.tags && n.tags.length) {
+      if (n.concepts && n.concepts.length) {
+        const c = document.createElement("div");
+        c.className = "m";
+        c.textContent = n.concepts.slice(0, 4)
+          .map(([name, s]) => name + " " + Math.round(s * 100) + "%").join(" · ");
+        tip.appendChild(c);
+      } else if (n.tags && n.tags.length) {
         const g = document.createElement("div");
         g.className = "m";
         g.textContent = n.tags.join(" · ");
@@ -391,6 +463,7 @@ function main() {
     alpha = Math.max(alpha, 0.5);
   });
   searchEl.addEventListener("input", () => { query = searchEl.value.trim(); });
+  lensEl.addEventListener("change", () => setLens(lensEl.value));
   document.getElementById("reheat").addEventListener("click", () => { alpha = 1; });
 
   ensureSize();

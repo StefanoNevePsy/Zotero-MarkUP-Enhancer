@@ -18,6 +18,10 @@ var ZoteroSemantic = {
   Tagger: null,
   Graph: null,
   Search: null,
+  Store: null,
+  Concepts: null,
+
+  FTL: "zotero-semantic.ftl",
 
   init({ id, version, rootURI }) {
     if (this.initialized) return;
@@ -38,8 +42,73 @@ var ZoteroSemantic = {
     }
 
     this._safe("Prefs", () => this._registerPrefs());
+    // The localisation file has to be in the window BEFORE anything labelled
+    // through it is created: the concept section's header is such a label.
+    this._safe("FTL", () => this._insertFTLAll());
     this._safe("Menus", () => this._registerMenus());
+    this._safe("Concepts", () => this.Concepts.init());
     this.initialized = true;
+  },
+
+  // Zotero registers the plugin's .ftl files automatically, but a window only
+  // resolves them once they are inserted into it. This was never done, which
+  // is the likely reason plugin labels used to render blank in the main window.
+  _insertFTL(window) {
+    try {
+      if (window.MozXULElement && typeof window.MozXULElement.insertFTLIfNeeded === "function") {
+        window.MozXULElement.insertFTLIfNeeded(this.FTL);
+      }
+    } catch (e) {
+      this.log("insertFTL: " + e);
+    }
+  },
+
+  _removeFTL(window) {
+    try {
+      const link = window.document.querySelector('[href="' + this.FTL + '"]');
+      if (link) link.remove();
+    } catch (e) { /* ignore */ }
+  },
+
+  _insertFTLAll() {
+    for (const win of Zotero.getMainWindows()) this._insertFTL(win);
+  },
+
+  // Selected documents, or -- when nothing is selected -- the open collection,
+  // after asking, since analysing a whole collection costs API calls.
+  async _conceptTargets(window) {
+    const pane = window.ZoteroPane;
+    let items = (pane.getSelectedItems() || []).filter((i) => i.isRegularItem());
+    if (items.length) return items;
+    try {
+      const row = pane.getCollectionTreeRow();
+      if (row && row.isCollection()) {
+        items = row.ref.getChildItems().filter((i) => i.isRegularItem());
+      }
+    } catch (e) { /* ignore */ }
+    if (!items.length) {
+      Zotero.alert(window, "Zotero Semantic",
+        "Seleziona uno o più documenti, oppure apri una collezione.");
+      return [];
+    }
+    const ok = Services.prompt.confirm(window, "Zotero Semantic",
+      "Nessun documento selezionato. Analizzare tutti i " + items.length +
+      " documenti della collezione aperta?\n\nOgni documento richiede una chiamata " +
+      "al modello linguistico e due al servizio di embedding.");
+    return ok ? items : [];
+  },
+
+  uiAnalyzeConcepts() {
+    const win = Zotero.getMainWindow();
+    this._conceptTargets(win)
+      .then((items) => (items.length ? this.Concepts.runOnItems(win, items) : null))
+      .catch((e) => this.log("concepts: " + (e && e.stack ? e.stack : e)));
+  },
+
+  uiRankByConcept() {
+    const win = Zotero.getMainWindow();
+    this.Concepts.rankByConcept(win, null)
+      .catch((e) => this.log("rank: " + (e && e.stack ? e.stack : e)));
   },
 
   // ---- commands, callable without any window argument -------------------
@@ -69,6 +138,7 @@ var ZoteroSemantic = {
   },
 
   shutdown() {
+    try { this.Concepts.shutdown(); } catch (e) { /* ignore */ }
     if (this._menuRegID) {
       try { Zotero.MenuManager.unregisterMenu(this._menuRegID); } catch (e) { /* ignore */ }
       this._menuRegID = null;
@@ -181,6 +251,7 @@ var ZoteroSemantic = {
   // ---- per-window UI: entries in the item list context menu ----
 
   addToWindow(window) {
+    this._insertFTL(window);
     if (this._usingMenuManager) return; // native menus already registered
     try {
       const doc = window.document;
@@ -220,6 +291,7 @@ var ZoteroSemantic = {
   },
 
   removeFromWindow(window) {
+    this._removeFTL(window);
     try {
       const doc = window.document;
       for (const id of this._menuIDs) {

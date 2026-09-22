@@ -25,6 +25,23 @@
       <button label="Cerca per argomento (lista per pertinenza)…"
               oncommand="Zotero.Semantic.uiSearch()"/>
     </hbox>
+    <hbox align="center" style="gap:8px; flex-wrap:wrap">
+      <button label="Analizza concetti degli elementi selezionati…"
+              oncommand="Zotero.Semantic.uiAnalyzeConcepts()"/>
+      <button label="Ordina la biblioteca per concetto…"
+              oncommand="Zotero.Semantic.uiRankByConcept()"/>
+    </hbox>
+  </groupbox>
+
+  <groupbox>
+    <label><html:h2>Concetti</html:h2></label>
+    <description class="zsem-desc">Per ogni documento il modello elenca i concetti trattati; poi gli embedding misurano, brano per brano dall'inizio alla fine del testo (più le tue evidenziazioni), quanta parte del documento è dedicata a ciascuno. Il risultato compare nella sezione «Concetti» del pannello laterale, nelle colonne «Pertinenza» e «Concetti» della lista (da attivare con il tasto destro sull'intestazione delle colonne) e nella lente della rete di relazioni.</description>
+    <description class="zsem-desc">I dati sono salvati in note automatiche nella collezione «Zotero Semantic (dati)», così la sincronizzazione di Zotero li porta sugli altri computer. Non modificarle; se le elimini, basta rianalizzare i documenti.</description>
+    <hbox align="center">
+      <label value="Numero massimo di concetti per documento" flex="1"/>
+      <html:input type="number" min="4" max="25" style="width:5em"
+                  preference="extensions.zotero.semantic.conceptsMax"/>
+    </hbox>
   </groupbox>
 
   <groupbox>

@@ -2,8 +2,9 @@ const fs=require('fs'),vm=require('vm');
 const prefs={};
 const ctx={ZoteroSemantic:{log:()=>{}},Zotero:{Prefs:{get:k=>prefs[k],set:(k,v)=>prefs[k]=v}},console};
 vm.createContext(ctx);
-for (const f of ['src/utils.js','src/similarity.js','src/providers.js','src/search.js'].map(p=>__dirname+'/../'+p)) vm.runInContext(fs.readFileSync(f,'utf8'),ctx);
+for (const f of ['src/utils.js','src/similarity.js','src/providers.js','src/search.js','src/store.js','src/concepts.js'].map(p=>__dirname+'/../'+p)) vm.runInContext(fs.readFileSync(f,'utf8'),ctx);
 const U=ctx.ZoteroSemantic.Utils, S=ctx.ZoteroSemantic.Similarity, P=ctx.ZoteroSemantic.Providers, SE=ctx.ZoteroSemantic.Search;
+const ST=ctx.ZoteroSemantic.Store, CO=ctx.ZoteroSemantic.Concepts;
 U.ensureDefaultPrefs();
 let pass=0,fail=0;
 const chk=(n,c)=>{ c?(pass++,console.log('  ok  '+n)):(fail++,console.log('  FAIL '+n)); };
@@ -169,6 +170,117 @@ chk('dpr assurdo: resta nel budget', within(1400,900,40));
 chk('scala mai nulla o negativa', bs(0,0,0)>0 && bs(-5,-5,-5)>0);
 chk('valori non numerici non producono NaN', Number.isFinite(bs(undefined,null,NaN)));
 chk('non ingrandisce mai oltre il dpr richiesto', bs(400,300,2)<=2);
+
+console.log('-- concetti: quota del documento dedicata a ciascun concetto --');
+// 3 concetti x 10 brani. Il concetto 0 domina 7 brani, il concetto 1 ne
+// domina 2, il concetto 2 uno solo: "parla molto di AI, poco di relazioni".
+const sims=[[],[],[]];
+for (let j=0;j<10;j++){
+  const top= j<7?0 : j<9?1 : 2;
+  for (let i=0;i<3;i++) sims[i].push(i===top?0.82:0.61);
+}
+const sh=CO.prominence(sims);
+chk('le quote sommano a 1', Math.abs(sh.reduce((a,v)=>a+v,0)-1)<1e-9);
+chk('il tema presente ovunque ha la quota maggiore', sh[0]>sh[1] && sh[1]>sh[2]);
+chk('il tema citato una volta ha una quota piccola', sh[2]<0.2);
+// Stessi rapporti, scala di coseni diversa (un altro modello): stesso risultato.
+// E' il motivo della standardizzazione: la lezione dei "13 documenti, 1 collegamento".
+const other=sims.map(r=>r.map(v=>0.4+0.5*v));
+const sh2=CO.prominence(other);
+chk('indipendente dalla scala dei coseni del modello', sh.every((v,i)=>Math.abs(v-sh2[i])<1e-9));
+chk('un solo concetto prende tutto', Math.abs(CO.prominence([[0.7,0.8]])[0]-1)<1e-9);
+chk('nessun brano: quote uniformi', CO.prominence([[],[]]).every(v=>Math.abs(v-0.5)<1e-9));
+chk('coseni mancanti non producono NaN', CO.prominence([[NaN,0.8],[0.7,0.6]]).every(Number.isFinite));
+chk('shareOf ignora le maiuscole', CO.shareOf({c:[['Intelligenza artificiale',382]]},'intelligenza ARTIFICIALE')===0.382);
+chk('shareOf: concetto assente = 0', CO.shareOf({c:[['a',10]]},'b')===0 && CO.shareOf(null,'a')===0);
+
+console.log('-- concetti: finestre di testo dall\'inizio alla fine --');
+const doc='INIZIO'+'x'.repeat(50000)+'FINE';
+const win=U.windows(doc,10,900);
+chk('10 finestre', win.length===10);
+chk('la prima parte dall\'inizio', win[0].startsWith('INIZIO'));
+chk('l\'ultima arriva alla fine', win[9].endsWith('FINE'));
+chk('ogni finestra entro la dimensione', win.every(w=>w.length<=900));
+chk('testo corto: una sola finestra', U.windows('breve testo',10,900).length===1);
+chk('testo vuoto: nessuna finestra', U.windows('',10,900).length===0 && U.windows(null,10,900).length===0);
+chk('non inventa finestre sovrapposte su testi medi', U.windows('y'.repeat(2000),10,900).length===3);
+
+console.log('-- concetti: normalizzazione dell\'elenco del modello --');
+const nc=P.normalizeConcepts(['  Intelligenza  artificiale. ','intelligenza artificiale','1. legami parasociali','x','', null,'Memoria autobiografica'],['Memoria autobiografica'.toLowerCase().replace('m','M')],12);
+chk('spazi e punteggiatura ripuliti', nc[0]==='Intelligenza artificiale');
+chk('duplicati (maiuscole) rimossi', nc.filter(c=>c.toLowerCase()==='intelligenza artificiale').length===1);
+chk('numerazione rimossa', nc.includes('legami parasociali'));
+chk('voci troppo corte o vuote scartate', !nc.includes('x') && !nc.includes('') && nc.every(Boolean));
+chk('adotta la grafia gia usata in biblioteca',
+  P.normalizeConcepts(['memoria AUTOBIOGRAFICA'],['Memoria autobiografica'],12)[0]==='Memoria autobiografica');
+chk('rispetta il massimo', P.normalizeConcepts(['a1','b2','c3','d4'],[],2).length===2);
+chk('il prompt vieta i punteggi (li misura il testo)', /Non dare punteggi/.test(P.buildConceptPrompt('doc',[])));
+chk('il prompt passa il vocabolario esistente', P.buildConceptPrompt('doc',['legami parasociali']).includes('legami parasociali'));
+
+console.log('-- colonna Pertinenza: chiave di ordinamento --');
+const keys=[0,0.004,0.05,0.382,0.4,1].map(U.sortKey);
+chk('larghezza fissa', keys.every(k=>k.length===4));
+chk('ordine alfabetico = ordine numerico', keys.every((k,i)=>i===0||k>=keys[i-1]));
+chk('ordine anche con collazione numerica', keys.slice().sort((a,b)=>a.localeCompare(b,undefined,{numeric:true})).join()===keys.join());
+chk('valori fuori scala limitati', U.sortKey(7)==='1000' && U.sortKey(-3)==='0000' && U.sortKey(NaN)==='0000');
+
+console.log('-- embedding a lotti --');
+chk('lotti da 32', JSON.stringify(P.batches(Array.from({length:70},(_,i)=>i),32).map(b=>b.length))==='[32,32,6]');
+chk('lista vuota: nessun lotto', P.batches([],32).length===0);
+chk('NVIDIA: una richiesta con piu testi', JSON.stringify(P.Nvidia.buildBody(['a','b'],'passage','m').input)==='["a","b"]');
+const resp={data:[{index:1,embedding:[2]},{index:0,embedding:[1]},{index:2}]};
+const parsed=P.Nvidia.parseResponse(resp,3);
+chk('vettori riordinati per index', parsed[0][0]===1 && parsed[1][0]===2);
+chk('vettore mancante = null, non spostato', parsed[2]===null);
+chk('risposta vuota: tutti null', P.Nvidia.parseResponse(null,2).every(v=>v===null));
+
+console.log('-- archivio sincronizzato: note --');
+const tricky={
+  ABCD1234:{t:5,c:[['AI & <società>',382],['"citazioni"',61],['l\'altro',10],['</pre> tentativo',5],['città ✓',1]]},
+  EFGH5678:{t:9,c:[['memoria',500]]}
+};
+const html=ST.encode({shards:4,index:2,entries:tricky});
+const back=ST.decode(html);
+chk('andata e ritorno senza perdite', JSON.stringify(back.entries)===JSON.stringify(tricky));
+chk('metadati del blocco conservati', back.shards===4 && back.index===2);
+chk('un "</pre>" in un concetto non rompe la nota', (html.match(/<\/pre>/g)||[]).length===1);
+// L'invariante che conta per un VERO parser HTML (l'editor di note di Zotero):
+// nel contenuto non deve comparire nessun "<" e nessuna "&" che non sia l'inizio
+// di un'entita. Un "<societa" grezzo verrebbe letto come l'apertura di un tag.
+const payload=html.match(/<pre>([\s\S]*)<\/pre>/)[1];
+chk('nessun "<" grezzo nei dati della nota', !payload.includes('<'));
+chk('ogni "&" nei dati e un\'entita', !/&(?!(amp|lt|gt|quot|#\d+|#x[0-9a-f]+);)/i.test(payload));
+chk('la nota contiene il marcatore di ricerca', html.includes(ST.MARKER));
+chk('la nota spiega di non modificarla', /Non modificarla/.test(html));
+// L'editor di note puo riscrivere l'HTML se l'utente apre la nota.
+const edited='<div data-schema-version="9"><h2>x</h2><p>y</p><pre><code>'+
+  html.match(/<pre>([\s\S]*?)<\/pre>/)[1].replace(/ /g,'&nbsp;')+'</code></pre></div>';
+chk('tollera l\'HTML riscritto dall\'editor di Zotero', JSON.stringify(ST.decode(edited).entries)===JSON.stringify(tricky));
+chk('nota estranea: ignorata', ST.decode('<p>una nota qualsiasi</p>')===null && ST.decode('<pre>{"a":1}</pre>')===null);
+chk('contenuto corrotto: ignorato, niente eccezioni', ST.decode('<pre>{rotto</pre>')===null);
+
+const m=ST.merge([{entries:{K1:{t:1,c:[['vecchio',1]]},K2:{t:3,c:[]}}},{entries:{K1:{t:2,c:[['nuovo',1]]}}}]);
+chk('fusione: vince la voce piu recente', m.K1.c[0][0]==='nuovo');
+chk('fusione: le altre voci restano', !!m.K2);
+chk('fusione indipendente dall\'ordine delle note',
+  ST.merge([{entries:{K1:{t:2,c:[['nuovo',1]]}}},{entries:{K1:{t:1,c:[['vecchio',1]]}}}]).K1.c[0][0]==='nuovo');
+
+chk('stesso documento, stesso blocco', ST.shardOf('ABCD1234',8)===ST.shardOf('ABCD1234',8));
+chk('blocco sempre nell\'intervallo', ['A','B','C','ZZZZ9999','Q1W2E3R4'].every(k=>{const s=ST.shardOf(k,8);return s>=0&&s<8;}));
+const parts=ST.partition(tricky,4);
+chk('la suddivisione non perde voci', parts.reduce((a,g)=>a+Object.keys(g).length,0)===2);
+
+// Una biblioteca grande deve finire in blocchi che Zotero riesce a sincronizzare.
+const big={};
+for (let i=0;i<1500;i++){
+  const c=[]; for(let j=0;j<12;j++) c.push(['concetto piuttosto lungo numero '+j,100+j]);
+  big['K'+String(i).padStart(7,'0')]={t:i,c};
+}
+const shardsNeeded=ST.planShards(big,2,ST.LIMIT);
+const worst=Math.max(...ST.partition(big,shardsNeeded).map((g,i)=>ST.encode({shards:shardsNeeded,index:i,entries:g}).length));
+chk('1500 documenti: ogni nota sotto il limite ('+shardsNeeded+' blocchi, max '+worst+' car.)', worst<=ST.LIMIT);
+chk('piccola biblioteca: minimo di blocchi', ST.planShards(tricky,2,ST.LIMIT)===ST.MIN_SHARDS);
+chk('il limite resta ben sotto quello dichiarato da Zotero', ST.LIMIT<=80000);
 
 console.log('-- ogni documento .xhtml e XML ben formato --');
 // Un .xhtml viene letto come XML: anche un "<canvas>" dentro un commento CSS

@@ -61,6 +61,18 @@ ZoteroSemantic.Graph = {
 
     data.truncated = truncated;
 
+    // Concepts for the lens. A failure here must not cost the user the graph.
+    try {
+      const S = ZoteroSemantic.Store;
+      for (let i = 0; i < items.length; i++) {
+        const entry = await S.get(items[i]);
+        data.nodes[i].concepts = entry ? (entry.c || []).map(([n, p]) => [n, p / 1000]) : [];
+      }
+      data.activeConcept = U.get("activeConcept") || "";
+    } catch (e) {
+      ZoteroSemantic.log("graph concepts: " + e);
+    }
+
     const args = {
       data,
       selectItem: (id) => {

@@ -2,8 +2,9 @@
 // AI providers behind one interface, so the rest of the plugin never cares which
 // engine is in use.
 //
-//   suggestTags(profile, vocabulary) -> [string]
-//   embed(text)                      -> [number] | null   (null = unsupported)
+//   generateList(prompt)     -> [string]        (tags and concepts)
+//   embed(text, kind)        -> [number] | null
+//   embedBatch(texts, kind)  -> [[number] | null]
 //
 // Gemini talks HTTP. Apple runs an on-device CLI: Zotero can launch processes
 // with Zotero.Utilities.Internal.exec() but CANNOT capture their stdout (and the
@@ -20,7 +21,45 @@ ZoteroSemantic.Providers = {
   },
 
   async suggestTags(profile, vocabulary) {
-    return this.current().suggestTags(profile, vocabulary);
+    return this.generateList(this.buildTagPrompt(profile, vocabulary));
+  },
+
+  async suggestConcepts(profile, vocabulary) {
+    return this.generateList(this.buildConceptPrompt(profile, vocabulary));
+  },
+
+  // Tags and concepts are both "a prompt in, a list of strings out", so the
+  // engines expose that single operation and the prompts live here.
+  async generateList(prompt) {
+    const engine = this.current();
+    return this.withRetry(() => engine.generateList(prompt));
+  },
+
+  // Free tiers answer 429 when requests come too fast, and analysing a whole
+  // collection is exactly that. Waiting and retrying is what a person would do
+  // by hand; failing the batch on the first refusal is not.
+  async withRetry(fn, waits) {
+    const delays = waits || [2000, 6000, 15000];
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fn();
+      } catch (e) {
+        const status = e && (e.status || (e.xmlhttp && e.xmlhttp.status));
+        const transient = status === 429 || status === 503 || status === 502;
+        if (!transient || attempt >= delays.length) throw e;
+        ZoteroSemantic.log("provider busy (" + status + "), retry in " + delays[attempt] + " ms");
+        // Zotero.Promise.delay rather than setTimeout: the plugin scope is not a
+        // window and is not guaranteed to have timers of its own.
+        await Zotero.Promise.delay(delays[attempt]);
+      }
+    }
+  },
+
+  // Pure. Splits a list into consecutive batches of at most `size`.
+  batches(list, size) {
+    const out = [];
+    for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+    return out;
   },
 
   // ---- embeddings -------------------------------------------------------
@@ -54,7 +93,22 @@ ZoteroSemantic.Providers = {
   async embed(text, kind) {
     const p = this.embedProvider();
     if (typeof p.embed !== "function") return null;
-    return p.embed(text, kind === "query" ? "query" : "passage");
+    return this.withRetry(() => p.embed(text, kind === "query" ? "query" : "passage"));
+  },
+
+  // Many texts, few requests: both engines accept a list per call. Returns one
+  // vector (or null) per input, in order.
+  async embedMany(texts, kind) {
+    const p = this.embedProvider();
+    const k = kind === "query" ? "query" : "passage";
+    const out = [];
+    for (const chunk of this.batches(texts, 32)) {
+      const vs = typeof p.embedBatch === "function"
+        ? await this.withRetry(() => p.embedBatch(chunk, k))
+        : await Promise.all(chunk.map((t) => this.withRetry(() => p.embed(t, k))));
+      for (let i = 0; i < chunk.length; i++) out.push(Array.isArray(vs[i]) ? vs[i] : null);
+    }
+    return out;
   },
 
   supportsEmbeddings() {
@@ -133,6 +187,63 @@ ZoteroSemantic.Providers = {
     return p;
   },
 
+  // Concepts differ from tags in purpose: tags are a few curated labels, while
+  // concepts are a fuller inventory of what the document discusses, central
+  // and secondary alike. The model only NAMES them; how much the document is
+  // about each one is measured afterwards from the text itself, because a
+  // model's self-assigned scores are not comparable between documents.
+  buildConceptPrompt(profile, vocabulary) {
+    const U = ZoteroSemantic.Utils;
+    const max = Number(U.get("conceptsMax")) || 12;
+
+    let p = "Sei un ricercatore che indicizza una biblioteca di ricerca.\n";
+    p += "Elenca da 6 a " + max + " concetti di cui tratta il documento descritto\n";
+    p += "sotto: sia i temi centrali sia quelli secondari ma presenti.\n\n";
+    p += "Regole:\n";
+    p += "- Concetti SPECIFICI: teorie, costrutti, fenomeni, metodi, popolazioni,\n";
+    p += "  contesti. Un concetto che si applicherebbe a quasi ogni documento\n";
+    p += "  (Ricerca, Studio, Societa', Tecnologia, Comunicazione, Salute) e' inutile.\n";
+    p += "- Espressioni nominali brevi (1-4 parole), nella lingua del documento.\n";
+    p += "- Ogni concetto una sola volta: niente sinonimi dello stesso concetto.\n";
+    p += "- Non dare punteggi e non ordinare per importanza: serve solo l'elenco.\n";
+
+    if (vocabulary && vocabulary.length) {
+      p += "- Se un concetto coincide con uno di quelli gia' usati in biblioteca,\n";
+      p += "  scrivilo ESATTAMENTE con la stessa grafia, cosi' i documenti restano\n";
+      p += "  confrontabili. Se invece e' solo affine, usa il nome piu' preciso.\n\n";
+      p += "Concetti gia' usati in biblioteca:\n" + vocabulary.join(", ") + "\n";
+    }
+
+    p += "\nDocumento:\n" + profile + "\n";
+    p += "\nRispondi SOLO con un array JSON di stringhe, senza altro testo.\n";
+    return p;
+  },
+
+  // Pure. Cleans the model's list: trims, drops empty or overlong entries and
+  // case-insensitive duplicates, and adopts the library's existing spelling
+  // when a concept already exists -- that shared spelling is what makes
+  // "sort the library by this concept" find the same concept across documents.
+  normalizeConcepts(list, vocabulary, max) {
+    const known = new Map();
+    for (const v of vocabulary || []) {
+      const k = String(v).trim().toLowerCase();
+      if (k && !known.has(k)) known.set(k, String(v).trim());
+    }
+    const seen = new Set();
+    const out = [];
+    for (const raw of list || []) {
+      let name = String(raw == null ? "" : raw).replace(/\s+/g, " ").trim()
+        .replace(/^[-•*\d.)\s]+/, "").replace(/[.;:,]+$/, "").trim();
+      if (name.length < 2 || name.length > 60) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(known.get(key) || name);
+      if (out.length >= (max || 12)) break;
+    }
+    return out;
+  },
+
   // ---- Gemini -------------------------------------------------------------
 
   Gemini: {
@@ -144,10 +255,9 @@ ZoteroSemantic.Providers = {
       return k;
     },
 
-    async suggestTags(profile, vocabulary) {
+    async generateList(prompt) {
       const U = ZoteroSemantic.Utils;
       const model = U.get("geminiModel") || "gemini-2.5-flash";
-      const prompt = ZoteroSemantic.Providers.buildTagPrompt(profile, vocabulary);
 
       const url = this._base + encodeURIComponent(model) +
         ":generateContent?key=" + encodeURIComponent(this._key());
@@ -195,20 +305,43 @@ ZoteroSemantic.Providers = {
       });
       const v = res.response && res.response.embedding && res.response.embedding.values;
       return Array.isArray(v) ? v : null;
+    },
+
+    // batchEmbedContents: one request for a whole list, same task types.
+    async embedBatch(texts, kind) {
+      const U = ZoteroSemantic.Utils;
+      const model = U.get("geminiEmbedModel") || "text-embedding-004";
+      const url = this._base + encodeURIComponent(model) +
+        ":batchEmbedContents?key=" + encodeURIComponent(this._key());
+      const taskType = kind === "query" ? "RETRIEVAL_QUERY" : "RETRIEVAL_DOCUMENT";
+      const body = {
+        requests: texts.map((t) => ({
+          model: "models/" + model,
+          content: { parts: [{ text: U.clean(t, 8000) }] },
+          taskType
+        }))
+      };
+      const res = await Zotero.HTTP.request("POST", url, {
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+        responseType: "json"
+      });
+      const list = (res.response && res.response.embeddings) || [];
+      return texts.map((_, i) => (list[i] && Array.isArray(list[i].values) ? list[i].values : null));
     }
   },
 
   // ---- NVIDIA (embeddings only) -------------------------------------------
   // OpenAI-shaped /v1/embeddings. nemotron-3-embed-1b returns 2048-dimensional
   // vectors and is validated to 4096 tokens, so long profiles are truncated at
-  // the end by the service rather than rejected. No suggestTags(): this engine
+  // the end by the service rather than rejected. No generateList(): this engine
   // is wired up purely as an embedding source.
 
   Nvidia: {
     // Pure, so the input_type contract can be asserted in tests.
     buildBody(text, kind, model) {
       return {
-        input: [String(text)],
+        input: Array.isArray(text) ? text.map(String) : [String(text)],
         model: model,
         input_type: kind === "query" ? "query" : "passage",
         encoding_format: "float",
@@ -217,6 +350,10 @@ ZoteroSemantic.Providers = {
     },
 
     async embed(text, kind) {
+      return (await this.embedBatch([text], kind))[0];
+    },
+
+    async embedBatch(texts, kind) {
       const U = ZoteroSemantic.Utils;
       const key = String(U.get("nvidiaKey") || "").trim();
       if (!key) throw new Error("Nessuna API key NVIDIA impostata nelle preferenze.");
@@ -224,7 +361,7 @@ ZoteroSemantic.Providers = {
       const base = String(U.get("nvidiaBase") || "https://integrate.api.nvidia.com/v1")
         .replace(/\/+$/, "");
       const model = U.get("nvidiaEmbedModel") || "nvidia/nemotron-3-embed-1b";
-      const body = this.buildBody(U.clean(text, 12000), kind, model);
+      const body = this.buildBody(texts.map((t) => U.clean(t, 12000)), kind, model);
 
       const res = await Zotero.HTTP.request("POST", base + "/embeddings", {
         body: JSON.stringify(body),
@@ -235,9 +372,19 @@ ZoteroSemantic.Providers = {
         },
         responseType: "json"
       });
+      return this.parseResponse(res.response, texts.length);
+    },
 
-      const first = res.response && res.response.data && res.response.data[0];
-      return first && Array.isArray(first.embedding) ? first.embedding : null;
+    // Pure. OpenAI-shaped responses carry an `index` per vector; order by it
+    // rather than trusting arrival order, so vector i always belongs to text i.
+    parseResponse(response, count) {
+      const out = new Array(count).fill(null);
+      const data = (response && response.data) || [];
+      data.forEach((d, pos) => {
+        const i = Number.isInteger(d && d.index) ? d.index : pos;
+        if (i >= 0 && i < count && d && Array.isArray(d.embedding)) out[i] = d.embedding;
+      });
+      return out;
     }
   },
 
@@ -251,10 +398,9 @@ ZoteroSemantic.Providers = {
     //   fm respond "<prompt>" --schema schema.json      -> {"tags": [...]}
     // If the installed CLI does not understand --schema (macOS 26 third-party
     // builds), we transparently retry with a plain prompt and parse loosely.
-    async suggestTags(profile, vocabulary) {
+    async generateList(prompt) {
       const U = ZoteroSemantic.Utils;
       const P = ZoteroSemantic.Providers;
-      const prompt = P.buildTagPrompt(profile, vocabulary);
 
       let out = "";
       let firstError = null;

@@ -128,6 +128,17 @@ ZoteroSemantic.Search = {
   },
 
   _show(window, topic, items, ranked) {
+    this.openResults(window, {
+      topic,
+      subtitle: ranked.length + " documenti ordinati per pertinenza semantica",
+      rows: this.toRows(items, ranked)
+    });
+  },
+
+  // Shared by the topic search and the ranking by concept. Each row may carry
+  // `bar` (0..1) when the bar should be relative to something other than the
+  // percentage shown, e.g. to the library's top document for a concept.
+  openResults(window, { topic, subtitle, rows }) {
     // A chrome:// URL, not rootURI: openDialog() silently ignores the jar: URL
     // of a packed plugin, and Zotero's basicViewer is a XUL <window> with no
     // <body>, so HTML injected into it cannot be laid out or scrolled.
@@ -144,10 +155,24 @@ ZoteroSemantic.Search = {
       "chrome,dialog=no,resizable,centerscreen,width=680,height=700",
       {
         topic,
-        rows: this.toRows(items, ranked),
+        subtitle,
+        rows,
         selectItem: (id) => {
           try { window.ZoteroPane.selectItem(id); window.focus(); }
           catch (e) { ZoteroSemantic.log("selectItem: " + e); }
+        },
+        // The filter half of "search, filter and sort": the result set lands
+        // as a selection in the main list, ready to tag, collect or export.
+        selectItems: (ids) => {
+          const pane = window.ZoteroPane;
+          Promise.resolve()
+            // inLibraryRoot: the results may span collections, so select them
+            // from the library root rather than failing on the current view.
+            .then(() => (typeof pane.selectItems === "function"
+              ? pane.selectItems(ids, { inLibraryRoot: true })
+              : pane.selectItem(ids[0], { inLibraryRoot: true })))
+            .then(() => window.focus())
+            .catch((e) => ZoteroSemantic.log("selectItems: " + e));
         }
       }
     );

@@ -144,6 +144,49 @@ ZoteroSemantic.Extractor = {
     }
   },
 
+  // Separate passages for concept scoring. Each is embedded on its own, and a
+  // concept's share of the document is how strongly the passages lean towards
+  // it -- so the passages must cover the work from its first page to its last,
+  // and the reader's own highlights count as passages of their own.
+  async passages(item) {
+    const U = ZoteroSemantic.Utils;
+    const out = [];
+    const title = item.getField("title") || "";
+    const abstract = U.clean(item.getField("abstractNote"), 1500);
+    out.push(U.clean([title, abstract].filter(Boolean).join(". "), 1600));
+
+    try {
+      const att = await this._bestAttachment(item);
+      if (att) {
+        // Highlights, grouped into passages of roughly 700 characters.
+        if (typeof att.getAnnotations === "function") {
+          let anns = att.getAnnotations();
+          if (anns && typeof anns.then === "function") anns = await anns;
+          const pieces = (anns || [])
+            .map((a) => [U.clean(a.annotationText, 300), U.clean(a.annotationComment, 200)]
+              .filter(Boolean).join(" "))
+            .filter(Boolean);
+          const groups = [];
+          let cur = "";
+          for (const p of pieces) {
+            if (cur && cur.length + p.length > 700) { groups.push(cur); cur = ""; }
+            cur = cur ? cur + " · " + p : p;
+          }
+          if (cur) groups.push(cur);
+          for (const g of U.spread(groups, 4)) out.push(g);
+        }
+
+        // Body text: ten windows from the first page to the last.
+        let text = att.attachmentText;
+        if (text && typeof text.then === "function") text = await text;
+        for (const w of U.windows(text, 10, 900)) out.push(w);
+      }
+    } catch (e) {
+      ZoteroSemantic.log("passages " + item.key + ": " + e);
+    }
+    return out.filter((p) => p && p.length > 20);
+  },
+
   // Shorter profile used for embeddings / similarity.
   async buildShortProfile(item) {
     const U = ZoteroSemantic.Utils;

@@ -38,6 +38,9 @@ ZoteroSemantic.Utils = {
     // weight is stored as a whole percentage and divided when used.
     "graphMinWeightPct": 12,
     "embeddings": true,                // use embeddings for graph distances
+    "conceptsMax": 12,                 // concepts extracted per document
+    // The concept that drives the "Pertinenza" column and the graph's lens.
+    "activeConcept": "",
     // Off by default: Zotero.MenuManager can only label entries with an
     // l10nID, and an unresolved id breaks Zotero's whole context menu.
     "enableContextMenu": false
@@ -128,6 +131,33 @@ ZoteroSemantic.Utils = {
     let out = parts.join(sep);
     if (out.length > b) out = out.slice(0, b);
     return out;
+  },
+
+  // `n` windows of `size` characters spread evenly from the very start to the
+  // very end of a text. Unlike sampleWithinBudget() the windows are kept apart,
+  // because each one is scored separately: how many of them mention a concept
+  // is what tells "a central theme" from "mentioned in passing".
+  windows(text, n, size) {
+    if (!text) return [];
+    const s = String(text).replace(/\s+/g, " ").trim();
+    if (!s) return [];
+    if (s.length <= size) return [s];
+    const count = Math.max(1, Math.min(n, Math.ceil(s.length / size)));
+    if (count === 1) return [s.slice(0, size)];
+    const span = s.length - size;
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const start = Math.floor((i * span) / (count - 1));
+      out.push(s.substr(start, size));
+    }
+    return out;
+  },
+
+  // A fixed-width key whose string order equals its numeric order, whatever
+  // collation the item list applies to plugin columns.
+  sortKey(share) {
+    const v = Math.max(0, Math.min(1000, Math.round((Number(share) || 0) * 1000)));
+    return String(v).padStart(4, "0");
   },
 
   // Pick n items spread evenly across an array (preserves order).
