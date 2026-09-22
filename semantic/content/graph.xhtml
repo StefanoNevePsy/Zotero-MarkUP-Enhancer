@@ -15,7 +15,14 @@
     #search { padding:4px 8px; border-radius:6px; width:190px;
       border:1px solid rgba(128,128,128,.4); background:Field; color:FieldText; }
     #mode { opacity:.65; font-size:11px; }
-    #canvas { position:absolute; top:38px; left:0; right:0; bottom:0; display:block; }
+    /* The stage is a plain div, so left/right/top/bottom really stretch it.
+       A canvas is a replaced element: positioned the same way it would NOT
+       stretch, its width would stay its intrinsic one -- the bitmap size --
+       and sizing the bitmap from the measured width then doubled it every
+       frame on a retina screen. The canvas fills the stage; only the stage is
+       measured, so its size can never depend on the bitmap. */
+    #stage { position:absolute; top:38px; left:0; right:0; bottom:0; overflow:hidden; }
+    #canvas { display:block; width:100%; height:100%; }
     #tip { position:absolute; pointer-events:none; z-index:3; max-width:320px;
       padding:7px 10px; border-radius:8px; font-size:12px; display:none;
       background:rgba(20,20,20,.94); color:#fff; box-shadow:0 4px 18px rgba(0,0,0,.35); }
@@ -35,7 +42,7 @@
     <span class="grow"></span>
     <button id="reheat">Riordina</button>
   </div>
-  <canvas id="canvas"></canvas>
+  <div id="stage"><canvas id="canvas"></canvas></div>
   <div id="tip"></div>
   <div id="err"></div>
 

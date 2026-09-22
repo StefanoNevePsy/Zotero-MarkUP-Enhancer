@@ -52,6 +52,10 @@ function main() {
   const selectItem = args.selectItem || function () {};
 
   const canvas = document.getElementById("canvas");
+  // All sizes are measured on the stage, never on the canvas: a canvas's own
+  // box can follow its bitmap size, and sizing the bitmap from it is a
+  // feedback loop that doubled the bitmap every frame.
+  const stage = document.getElementById("stage");
   const ctx = canvas.getContext("2d");
   const tip = document.getElementById("tip");
   const threshEl = document.getElementById("thresh");
@@ -111,14 +115,14 @@ function main() {
   // What the window currently measures, quoted in the error box: a size
   // problem is unreadable without the numbers that produced it.
   function measurements() {
-    return "area " + canvas.clientWidth + "x" + canvas.clientHeight +
+    return "area " + stage.clientWidth + "x" + stage.clientHeight +
       " css · dpr " + (window.devicePixelRatio || 1) +
       " · bitmap " + canvas.width + "x" + canvas.height +
       " · scala " + Math.round(applied.scale * 100) / 100;
   }
 
   function ensureSize() {
-    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    const cw = stage.clientWidth, ch = stage.clientHeight;
     // While the window reports no drawable area, leave the canvas untouched.
     // Forcing a degenerate buffer on it is what makes the 2D context start
     // throwing on the next call, which killed the loop just after the graph
@@ -195,7 +199,7 @@ function main() {
 
   // ---- rendering ----
   function draw() {
-    const w = canvas.clientWidth, h = canvas.clientHeight;
+    const w = stage.clientWidth, h = stage.clientHeight;
     // Gecko puts a canvas into a permanent error state as soon as an operation
     // is attempted on a zero-sized bitmap, and from then on every single call
     // throws "Canvas is already in error state". Skipping the frame is free;
@@ -263,7 +267,7 @@ function main() {
   // different size and back is the way out.
   function recoverCanvas() {
     try {
-      const cw = canvas.clientWidth, ch = canvas.clientHeight;
+      const cw = stage.clientWidth, ch = stage.clientHeight;
       if (!cw || !ch) return;
       const dpr = window.devicePixelRatio || 1;
       const scale = backingScale(cw, ch, dpr);
@@ -401,10 +405,10 @@ function main() {
       window.setInterval(tick, 33);
     }
     // Last resort: say what is wrong rather than show an empty rectangle.
-    if (!canvas.clientWidth || !canvas.clientHeight) {
+    if (!stage.clientWidth || !stage.clientHeight) {
       showError("dimensioni", new Error(
-        "L'area di disegno ha dimensione " + canvas.clientWidth + "x" +
-        canvas.clientHeight + ". Prova a ridimensionare la finestra."));
+        "L'area di disegno ha dimensione " + stage.clientWidth + "x" +
+        stage.clientHeight + ". Prova a ridimensionare la finestra."));
     } else if (!nodes.length) {
       showError("dati", new Error("Nessun documento da mostrare."));
     }

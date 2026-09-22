@@ -170,6 +170,61 @@ chk('scala mai nulla o negativa', bs(0,0,0)>0 && bs(-5,-5,-5)>0);
 chk('valori non numerici non producono NaN', Number.isFinite(bs(undefined,null,NaN)));
 chk('non ingrandisce mai oltre il dpr richiesto', bs(400,300,2)<=2);
 
+console.log('-- ogni documento .xhtml e XML ben formato --');
+// Un .xhtml viene letto come XML: anche un "<canvas>" dentro un commento CSS
+// apre un tag, e il documento intero non viene caricato -- senza alcun errore
+// visibile in Zotero.
+{
+  const {execFileSync}=require('child_process'), P=require('path');
+  const docs=['content','prefs'].flatMap(d=>fs.readdirSync(P.join(__dirname,'..',d))
+    .filter(f=>f.endsWith('.xhtml')).map(f=>P.join(__dirname,'..',d,f)));
+  let haveLint=true;
+  try { execFileSync('xmllint',['--version'],{stdio:'ignore'}); } catch(e){ haveLint=false; }
+  if (!haveLint) console.log('  (xmllint non disponibile: controllo saltato)');
+  else for (const f of docs) {
+    let ok=true, msg='';
+    try { execFileSync('xmllint',['--noout',f],{stdio:'pipe'}); }
+    catch(e){ ok=false; msg=String(e.stderr||e).split('\n')[0]; }
+    chk(P.relative(P.join(__dirname,'..'),f)+' ben formato'+(ok?'':' -> '+msg), ok);
+  }
+}
+
+console.log('-- il canvas non si misura da solo (ciclo di raddoppio) --');
+// <canvas> e un elemento sostituito: in posizione assoluta left/right non lo
+// allargano e la sua larghezza segue il bitmap. Misurarlo per dimensionare il
+// bitmap raddoppiava entrambi a ogni frame fino a "Canvas exceeds max size".
+const graphX=fs.readFileSync(__dirname+'/../content/graph.xhtml','utf8');
+chk('il codice misura lo stage, mai il canvas', !/canvas\.client(Width|Height)/.test(graphSrc));
+chk('il canvas e dentro uno stage', /<div id="stage">\s*<canvas id="canvas">/.test(graphX));
+chk('il canvas riempie lo stage con dimensioni CSS esplicite',
+  /#canvas\s*\{[^}]*width:\s*100%[^}]*height:\s*100%/.test(graphX));
+
+console.log('-- calibrazione dei coseni sul set di documenti --');
+const cal=S.calibrate([0.80,0.81,0.82,0.83,0.84,0.85,0.86,0.87,0.88,0.95]);
+chk('la coppia mediana vale 0', cal(0.84)===0);
+chk('la coppia migliore vale 1', cal(0.95)===1);
+chk('crescente fra mediana e vertice', cal(0.86)>0 && cal(0.86)<cal(0.88));
+// Il caso reale: coseni tutti fuori dalla finestra fissa 0.55-0.92.
+const alti=[0.93,0.935,0.94,0.945,0.95,0.955,0.96,0.965,0.97,0.975];
+chk('con coseni tutti alti la finestra fissa appiattisce tutto', alti.every(c=>S.rescale(c)===1));
+chk('la calibrazione li distingue comunque', S.calibrate(alti)(0.975)>S.calibrate(alti)(0.955));
+chk('set troppo piccolo: finestra fissa', S.calibrate([0.7])(0.7)===S.rescale(0.7));
+chk('set costante: nessuna divisione per zero', Number.isFinite(S.calibrate([0.9,0.9,0.9,0.9])(0.9)));
+chk('NaN ignorati', S.calibrate([NaN,0.8,0.85,0.9,0.95])(0.95)===1);
+
+console.log('-- selezione dei collegamenti --');
+// 4 documenti: 0-1 fortissimo, il resto debole sotto soglia.
+const n4=4, W=new Array(16).fill(0);
+const setW=(i,j,w)=>{W[S.pairIndex(n4,i,j)]=w;};
+setW(0,1,0.9); setW(0,2,0.05); setW(1,3,0.04); setW(2,3,0.03);
+const E=S.selectEdges(n4,W,0.12,2);
+const has=(i,j)=>E.some(e=>e.s===i&&e.t===j);
+chk('sopra soglia mantenuto', has(0,1));
+chk('nessun documento isolato se ha un vicino', [0,1,2,3].every(i=>E.some(e=>e.s===i||e.t===i)));
+chk('nessun collegamento duplicato', new Set(E.map(e=>e.s+'-'+e.t)).size===E.length);
+chk('peso zero non crea collegamenti', S.selectEdges(3,new Array(9).fill(0),0.12,2).length===0);
+chk('s sempre minore di t', E.every(e=>e.s<e.t));
+
 console.log('-- finestre: ogni URL chrome:// deve puntare a un file esistente --');
 // La rete di relazioni si apriva vuota perche' openDialog() ignora in silenzio
 // l'URL jar: di un plugin impacchettato. Ora usiamo chrome://, che pero' fallisce
